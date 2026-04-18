@@ -371,7 +371,6 @@ export default function TaskDetailModal({ isOpen, onClose, task, projectId, onUp
 
   // === Checklist Group Handlers ===
   const handleCreateChecklist = (title: string, autoOpenAdd = false) => {
-    setFieldActionTime('checklists');
     const tempId = `temp-cl-${Date.now()}`;
     const tempChecklist = { id: tempId, title, items: [] };
 
@@ -428,7 +427,6 @@ export default function TaskDetailModal({ isOpen, onClose, task, projectId, onUp
   const handleDeleteChecklist = (checklistId: string, title: string) => {
     // Prevent double-delete (e.g. double click)
     if (deletingChecklistsRef.current.has(checklistId)) return;
-    setFieldActionTime('checklists');
     deletingChecklistsRef.current.add(checklistId);
     emit('checklist:delete', { checklistId, projectId, taskId: localTask.id, userId: user?.id, title }, (response: any) => {
       if (response.status === 'error') {
@@ -441,7 +439,6 @@ export default function TaskDetailModal({ isOpen, onClose, task, projectId, onUp
   const handleAddCheckItem = (checklistId: string) => {
     const title = newItemInputs[checklistId]?.trim();
     if (!title) return;
-    setFieldActionTime('checklists');
 
     const tempId = `temp-${Date.now()}`;
     // Optimistic
