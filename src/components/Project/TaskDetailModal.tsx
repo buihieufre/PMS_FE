@@ -527,7 +527,6 @@ export default function TaskDetailModal({ isOpen, onClose, task, projectId, onUp
   const handleDeleteCheckItem = (checklistId: string, itemId: string) => {
     // Guard: don't delete if no valid id
     if (!itemId || itemId.startsWith('temp-')) return;
-    setFieldActionTime('checklists');
     // Optimistic
     setLocalTask((prev: any) => {
       const updated = {
