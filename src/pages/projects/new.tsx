@@ -5,9 +5,9 @@ import MainLayout from '@/components/Layout/MainLayout';
 import axiosInstance from '@/lib/axios';
 import { Upload, X, Save, ArrowLeft } from 'lucide-react';
 import Link from 'next/link';
-import { EDITOR_TOOLS } from '@/lib/editorTools';
+import { useRef, useCallback, useMemo } from 'react';
+import { getEditorTools } from '@/lib/editorTools';
 import dynamic from 'next/dynamic';
-import { useRef, useCallback } from 'react';
 
 const EditorJs = dynamic(
   () => import('react-editor-js').then((mod) => mod.createReactEditorJS()),
@@ -18,6 +18,7 @@ export default function CreateProjectPage() {
   const router = useRouter();
   const [name, setName] = useState('');
   const editorCore = useRef<any>(null);
+  const tools = useMemo(() => getEditorTools(), []);
 
   const handleInitialize = useCallback((instance: any) => {
     editorCore.current = instance;
@@ -118,7 +119,7 @@ export default function CreateProjectPage() {
                 <EditorJs
                   onInitialize={handleInitialize}
                   placeholder="Provide a detailed description of the project goals..."
-                  tools={EDITOR_TOOLS as any}
+                  tools={tools as any}
                 />
               </div>
             </div>

@@ -7,6 +7,8 @@ import Link from 'next/link';
 import { Paperclip, FileText, Image as ImageIcon, ArrowLeft } from 'lucide-react';
 import { toast } from 'sonner';
 import dynamic from 'next/dynamic';
+import { useMemo } from 'react';
+import { getEditorTools } from '@/lib/editorTools';
 
 // Next.js SSR workaround for Editor.js (requires window)
 const EditorJsViewer = dynamic(
@@ -14,7 +16,7 @@ const EditorJsViewer = dynamic(
   { ssr: false }
 );
 
-import { EDITOR_TOOLS } from '@/lib/editorTools';
+
 
 interface Attachment {
   id: string;
@@ -42,6 +44,7 @@ export default function ProjectDetailInfo() {
 
   const [project, setProject] = useState<Project | null>(null);
   const [loading, setLoading] = useState(true);
+  const tools = useMemo(() => getEditorTools(), []);
 
   useEffect(() => {
     if (!projectId) return;
@@ -84,7 +87,7 @@ export default function ProjectDetailInfo() {
                 <EditorJsViewer
                   defaultValue={data}
                   readOnly={true}
-                  tools={EDITOR_TOOLS as any}
+                  tools={tools as any}
                 />
               </div>
             );

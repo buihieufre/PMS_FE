@@ -7,8 +7,8 @@ import { toast } from 'sonner';
 import { Upload, X, Save, ArrowLeft } from 'lucide-react';
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
-import { useRef, useCallback } from 'react';
-import { EDITOR_TOOLS } from '@/lib/editorTools';
+import { useRef, useCallback, useMemo } from 'react';
+import { getEditorTools } from '@/lib/editorTools';
 
 const EditorJs = dynamic(
   () => import('react-editor-js').then((mod) => mod.createReactEditorJS()),
@@ -27,6 +27,7 @@ export default function EditProject() {
   const [name, setName] = useState('');
   const [descriptionData, setDescriptionData] = useState<any>(null);
   const editorCore = useRef<any>(null);
+  const tools = useMemo(() => getEditorTools(), []);
 
   const handleInitialize = useCallback((instance: any) => {
     editorCore.current = instance;
@@ -155,7 +156,7 @@ export default function EditProject() {
                   onInitialize={handleInitialize}
                   defaultValue={descriptionData || { blocks: [] }}
                   placeholder="Provide a detailed description of the project goals..."
-                  tools={EDITOR_TOOLS as any}
+                  tools={tools as any}
                 />
               </div>
             </div>
