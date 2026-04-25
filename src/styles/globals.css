@@ -13,20 +13,67 @@ body {
   background: white;
 }
 
+/*
+ * Thanh cuộn mặc định: màu mờ (slate nhạt), không tam giác / nút hai đầu (WebKit).
+ * Các lớp .custom-scrollbar phía dưới ghi đè khi cần.
+ */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.22) rgba(241, 245, 249, 0.35);
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+*::-webkit-scrollbar-track {
+  background: rgba(241, 245, 249, 0.35);
+  border-radius: 9999px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.22);
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 116, 139, 0.32);
+  background-clip: content-box;
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
 /* Custom Sleek Scrollbar */
 .custom-scrollbar::-webkit-scrollbar {
   height: 10px;
   width: 10px;
 }
 
+.custom-scrollbar::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
 .custom-scrollbar::-webkit-scrollbar-track {
-  background: rgba(0, 0, 0, 0.05);
+  background: rgba(148, 163, 184, 0.08);
   border-radius: 20px;
   margin-inline: 40px; /* Aligns with our spacers */
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb {
-  background: rgba(0, 0, 0, 0.15);
+  background: rgba(148, 163, 184, 0.2);
   border-radius: 20px;
   border: 2px solid transparent;
   background-clip: content-box;
@@ -34,22 +81,88 @@ body {
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: rgba(0, 0, 0, 0.25);
+  background: rgba(100, 116, 139, 0.3);
   background-clip: content-box;
 }
 
+.custom-scrollbar {
+  scrollbar-color: rgba(148, 163, 184, 0.22) rgba(148, 163, 184, 0.08);
+}
+
 /* For dark/colorful backgrounds */
+.board-page-active .custom-scrollbar::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
 .board-page-active .custom-scrollbar::-webkit-scrollbar-track {
   background: rgba(255, 255, 255, 0.1);
 }
 
 .board-page-active .custom-scrollbar::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.18);
   border: 2px solid transparent;
   background-clip: content-box;
 }
 
 .board-page-active .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.4);
+  background: rgba(255, 255, 255, 0.3);
   background-clip: content-box;
+}
+
+/* Board Kanban: thanh cuộn rõ hơn (cột dọc + hàng cột ngang) — bỏ margin 40px trên thanh dọc cột hẹp */
+.custom-scrollbar.board-scrollbar-y::-webkit-scrollbar-button,
+.custom-scrollbar.board-scrollbar-x::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+.custom-scrollbar.board-scrollbar-y::-webkit-scrollbar {
+  width: 4px;
+}
+.custom-scrollbar.board-scrollbar-y::-webkit-scrollbar-track {
+  margin: 4px 0;
+  margin-inline: 0;
+  background: rgba(15, 23, 42, 0.05);
+  border-radius: 6px;
+}
+.custom-scrollbar.board-scrollbar-y::-webkit-scrollbar-thumb {
+  background: rgba(100, 116, 139, 0.28);
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.65);
+  background-clip: padding-box;
+}
+.custom-scrollbar.board-scrollbar-y::-webkit-scrollbar-thumb:hover {
+  background: rgba(71, 85, 105, 0.4);
+  background-clip: padding-box;
+}
+
+.custom-scrollbar.board-scrollbar-x::-webkit-scrollbar {
+  height: 4px;
+}
+.custom-scrollbar.board-scrollbar-x::-webkit-scrollbar-track {
+  margin: 0 4px;
+  background: rgba(15, 23, 42, 0.05);
+  border-radius: 6px;
+}
+.custom-scrollbar.board-scrollbar-x::-webkit-scrollbar-thumb {
+  background: rgba(100, 116, 139, 0.28);
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.65);
+  background-clip: padding-box;
+}
+.custom-scrollbar.board-scrollbar-x::-webkit-scrollbar-thumb:hover {
+  background: rgba(71, 85, 105, 0.4);
+  background-clip: padding-box;
+}
+
+/* Firefox / đặt chung cho cả hai */
+.board-page-active .board-scrollbar-y {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(100, 116, 139, 0.3) rgba(15, 23, 42, 0.06);
+}
+.board-page-active .board-scrollbar-x {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(100, 116, 139, 0.3) rgba(15, 23, 42, 0.06);
 }

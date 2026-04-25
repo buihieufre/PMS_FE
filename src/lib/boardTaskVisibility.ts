@@ -3,11 +3,12 @@
  * add/remove the right cards for the current user (e.g. when assigned in realtime).
  */
 export function shouldShowTaskOnBoard(
-  task: { assignees?: { id: string }[]; departmentId?: string | null },
+  task: { assignees?: { id: string }[]; departmentId?: string | null; archivedAt?: string | null },
   userId: string | undefined,
   member: { projectRole?: string; departmentId?: string | null; userId?: string } | undefined
 ): boolean {
   if (!userId || !task) return false;
+  if (task.archivedAt) return false;
   const role = member?.projectRole;
   const assigneeIds = (task.assignees || []).map((a: { id?: string }) => a?.id).filter(Boolean) as string[];
 

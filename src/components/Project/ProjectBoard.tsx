@@ -1,5 +1,5 @@
-import { useState, useEffect, useMemo, useRef, memo } from 'react';
-import { MoreVertical, Plus, Users, Calendar, MessageSquare, Paperclip, CheckSquare, Clock, AlignLeft, LayoutDashboard, Search } from 'lucide-react';
+import { useState, useEffect, useRef, memo, type CSSProperties } from 'react';
+import { Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import { useSocket } from '@/hooks/useSocket';
 import { 
@@ -13,32 +13,24 @@ import {
   DraggableStateSnapshot 
 } from '@hello-pangea/dnd';
 import { createPortal } from 'react-dom';
-import { TaskAppearancePopover } from './TaskAppearancePopover';
 import { useAuthStore } from '@/store/authStore';
+import type { TaskCoverMode } from '@/lib/boardBackgroundStyle';
+import { TaskCardFace, type BoardTask } from './TaskCardFace';
+import { TaskCardQuickMenu, type QuickMenuView } from './TaskCardQuickMenu';
 
-interface Task {
-  id: string;
-  title: string;
-  description?: string;
-  status: string;
-  dueDate?: string;
-  background?: string | null;
-  textColor?: string | null;
-  assignees?: { id: string; displayName: string; avatarUrl?: string }[];
-  labels?: { id: string; name: string; color: string }[];
-  checklists?: any[];
-  activities?: any[];
-  attachments?: any[];
-}
+type Task = BoardTask;
 
 interface ProjectBoardProps {
   projectId: string;
   tasks: Task[];
-  boardBackground?: string | null;
+  /** Lọc theo tiêu đề; kiểm soát từ trang board */
+  searchTerm?: string;
   onTaskUpdate: () => void;
   onOptimisticUpdate?: (taskId: string, newStatus: string) => void;
-  onUpdateTaskAppearance?: (taskId: string, data: { background?: string, textColor?: string }) => void;
+  onUpdateTaskAppearance?: (taskId: string, data: { background?: string; textColor?: string; coverMode?: TaskCoverMode | null }) => void;
   onOptimisticReorder?: (taskIds: string[], status: string) => void;
+  /** Cập nhật tối ưu (nhãn, ngày, lưu trữ) đồng bộ cùng board.tsx / lastTaskUpdatesRef */
+  onOptimisticTaskPatch?: (taskId: string, patch: Record<string, unknown>) => void;
   onTaskClick: (task: Task) => void;
   onAddTask: (status: string) => void;
 }
@@ -65,164 +57,115 @@ const StrictDroppable = ({ children, ...props }: any) => {
   return <Droppable {...props}>{children}</Droppable>;
 };
 
-const TaskCard = memo(({ task, index, boardBackground, onTaskClick, handleOpenMenu }: { 
-  task: Task; 
-  index: number;
-  boardBackground?: string | null; 
-  onTaskClick: (task: Task) => void; 
-  handleOpenMenu: (e: React.MouseEvent, taskId: string) => void;
-}) => {
-  return (
-    <Draggable key={task.id} draggableId={task.id} index={index}>
-      {(provided: DraggableProvided, snapshot: DraggableStateSnapshot) => {
-        const style = {
-          ...provided.draggableProps.style,
-          background: task.background
-            ? task.background.startsWith('linear-gradient') || task.background.startsWith('#') || task.background.startsWith('rgb')
-              ? task.background
-              : `url(${task.background}) center/cover no-repeat`
-            : 'white',
-          color: task.textColor || 'inherit',
-          borderColor: snapshot.isDragging ? 'rgba(255,255,255,0.6)' : task.background ? 'transparent' : '#e2e8f0',
-        };
+const QUICK_EDIT_SNAP = { isDragging: false, isClone: false } as DraggableStateSnapshot;
 
-        const cardContent = (
-          <div 
-            ref={provided.innerRef}
-            {...provided.draggableProps}
-            {...provided.dragHandleProps}
-            onClick={() => !snapshot.isDragging && onTaskClick(task)}
-            className={`group p-4 rounded-xl shadow-sm border relative ${
-              snapshot.isDragging 
-                ? 'shadow-2xl rotate-3 scale-105 z-[9999] ring-2 ring-white/50 cursor-grabbing' 
-                : 'hover:shadow-md transition-all cursor-grab'
-            }`}
-            style={style}
-          >
-            {/* Card Menu (Triple Dots) */}
-            <div className="absolute top-2 right-2 z-10 opacity-0 group-hover:opacity-100 transition-opacity">
-              <button
-                onClick={(e) => handleOpenMenu(e, task.id)}
-                className="p-1 rounded-lg hover:bg-black/10 text-slate-400 hover:text-slate-600 outline-none transition-colors"
-              >
-                <MoreVertical className="h-4 w-4" />
-              </button>
-            </div>
+const TaskCard = memo(
+  ({
+    task,
+    index,
+    onTaskClick,
+    handleOpenMenu,
+    isQuickEditSource,
+  }: {
+    task: Task;
+    index: number;
+    onTaskClick: (task: Task) => void;
+    handleOpenMenu: (e: React.MouseEvent, taskId: string) => void;
+    isQuickEditSource: boolean;
+  }) => {
+    return (
+      <Draggable key={task.id} draggableId={task.id} index={index}>
+        {(provided: DraggableProvided, snapshot: DraggableStateSnapshot) => {
+          const { style: dndStyle, ...dndRest } = provided.draggableProps;
+          const cardContent = (
+            <TaskCardFace
+              ref={provided.innerRef}
+              task={task}
+              snapshot={snapshot}
+              onOpenMenu={handleOpenMenu}
+              showEditControls
+              style={dndStyle as CSSProperties}
+              onClick={() => !snapshot.isDragging && onTaskClick(task)}
+              className={isQuickEditSource ? 'pointer-events-none opacity-0' : undefined}
+              {...dndRest}
+              {...provided.dragHandleProps}
+            />
+          );
+          if (snapshot.isDragging) {
+            return createPortal(cardContent, document.body);
+          }
+          return cardContent;
+        }}
+      </Draggable>
+    );
+  },
+  (prev, next) =>
+    prev.task === next.task &&
+    prev.index === next.index &&
+    prev.isQuickEditSource === next.isQuickEditSource
+);
 
-            {task.labels && task.labels.length > 0 && (
-              <div className="flex flex-wrap gap-1.5 mb-2">
-                {task.labels.map(label => (
-                  <div key={label.id} className="h-2 w-10 rounded-full cursor-pointer hover:opacity-80 transition-opacity" style={{ backgroundColor: label.color }} title={label.name || ''} />
-                ))}
-              </div>
-            )}
-            <h4
-              className="text-sm font-bold mb-2 group-hover:opacity-80 transition-colors"
-              style={{ color: task.textColor || '#1e293b' }}
-            >
-              {task.title}
-            </h4>
-            
-            {/* Task Meta Stats */}
-            <div className="flex flex-wrap items-center gap-3 mt-3 pt-3 border-t border-slate-50">
-              {task.dueDate && (
-                <div className="flex items-center px-2 py-1 bg-amber-400 text-slate-900 rounded-md text-[10px] font-bold shadow-sm">
-                  <Clock className="h-3 w-3 mr-1" />
-                  {new Date(task.dueDate).toLocaleDateString('vi-VN', { day: '2-digit', month: 'short' })}
-                </div>
-              )}
-
-              {task.description && (
-                <div className="text-slate-400" title="Thẻ đã có miêu tả.">
-                  <AlignLeft className="h-3.5 w-3.5" />
-                </div>
-              )}
-
-              {(() => {
-                const commentCount = (task.activities || []).filter(a => a.type === 'COMMENT').length;
-                if (commentCount === 0) return null;
-                return (
-                  <div className="flex items-center text-[11px] text-slate-400 font-medium">
-                    <MessageSquare className="h-3.5 w-3.5 mr-1" />
-                    {commentCount}
-                  </div>
-                );
-              })()}
-
-              {(() => {
-                const total = (task.checklists || []).reduce((acc, cl) => acc + (cl.items?.length || 0), 0);
-                const done = (task.checklists || []).reduce((acc, cl) => acc + (cl.items?.filter((i: any) => i.isDone).length || 0), 0);
-                if (total === 0) return null;
-                return (
-                  <div className="flex items-center text-[11px] text-slate-400 font-medium">
-                    <CheckSquare className="h-3.5 w-3.5 mr-1" />
-                    {done}/{total}
-                  </div>
-                );
-              })()}
-            </div>
-
-            <div className="flex items-center justify-end mt-3 h-5">
-              {task.assignees && task.assignees.length > 0 ? (
-                <div className="flex -space-x-1.5">
-                  {task.assignees.slice(0, 3).map((a) => (
-                    <div key={a.id} className="w-5 h-5 rounded-full border border-white shadow-sm overflow-hidden bg-slate-100" title={a.displayName}>
-                      <img src={a.avatarUrl || `https://ui-avatars.com/api/?name=${a.displayName}&background=random&size=20`} alt="avatar" className="w-full h-full object-cover" />
-                    </div>
-                  ))}
-                  {task.assignees.length > 3 && (
-                    <div className="w-5 h-5 rounded-full border border-white shadow-sm overflow-hidden bg-slate-100 flex items-center justify-center text-[7px] font-bold text-slate-500">
-                      +{task.assignees.length - 3}
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div className="w-5 h-5 rounded-full border border-dashed border-slate-300 flex items-center justify-center bg-transparent">
-                  <Users className="h-2.5 w-2.5 text-slate-300" />
-                </div>
-              )}
-            </div>
-          </div>
-        );
-
-        if (snapshot.isDragging) {
-          return createPortal(cardContent, document.body);
-        }
-        return cardContent;
-      }}
-    </Draggable>
-  );
-}, (prev, next) => {
-  return prev.task === next.task && 
-         prev.index === next.index &&
-         prev.boardBackground === next.boardBackground;
-});
-
-export default function ProjectBoard({ projectId, tasks, boardBackground, onTaskUpdate, onOptimisticUpdate, onUpdateTaskAppearance, onOptimisticReorder, onTaskClick, onAddTask }: ProjectBoardProps) {
-  const { emit } = useSocket(projectId);
+export default function ProjectBoard({ projectId, tasks, searchTerm = '', onTaskUpdate, onOptimisticUpdate, onUpdateTaskAppearance, onOptimisticReorder, onOptimisticTaskPatch, onTaskClick, onAddTask }: ProjectBoardProps) {
+  const { emit, socket } = useSocket(projectId);
   const { user } = useAuthStore();
   const [localTasks, setLocalTasks] = useState<Task[]>(tasks);
   const [isDraggingCard, setIsDraggingCard] = useState(false);
   const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
   const [menuPosition, setMenuPosition] = useState<{ top: number; left: number } | null>(null);
-  const [searchTerm, setSearchTerm] = useState('');
-  
+  const [quickEditCardRect, setQuickEditCardRect] = useState<DOMRect | null>(null);
+  const [quickMenuView, setQuickMenuView] = useState<QuickMenuView>('actions');
   const lastLocalUpdateRef = useRef(0);
   const pendingActionsRef = useRef(0);
 
   const handleOpenMenu = (e: React.MouseEvent, taskId: string) => {
     e.stopPropagation();
-    const rect = e.currentTarget.getBoundingClientRect();
-    setMenuPosition({
-      top: rect.bottom + window.scrollY,
-      left: rect.right + window.scrollX - 256
-    });
+    const cardEl = (e.currentTarget as HTMLElement).closest('[data-task-card-wrap]') as HTMLElement | null;
+    const rect = cardEl?.getBoundingClientRect();
+    if (!rect) return;
+    const GAP = 10;
+    const menuW = 280;
+    let left = rect.right + GAP;
+    if (left + menuW > window.innerWidth - 8) {
+      left = Math.max(8, rect.left - menuW - GAP);
+    }
+    const estMenuH = 520;
+    const top = Math.max(8, Math.min(rect.top, window.innerHeight - estMenuH - 8));
+    setQuickEditCardRect(rect);
+    setMenuPosition({ top, left });
+    setQuickMenuView('actions');
     setActiveMenuId(taskId);
   };
 
   const closeMenu = () => {
     setActiveMenuId(null);
     setMenuPosition(null);
+    setQuickEditCardRect(null);
+  };
+
+  useEffect(() => {
+    if (!activeMenuId) return;
+    const onKey = (ev: KeyboardEvent) => {
+      if (ev.key === 'Escape') {
+        setActiveMenuId(null);
+        setMenuPosition(null);
+        setQuickEditCardRect(null);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [activeMenuId]);
+
+  const emitTaskUpdate = (taskId: string, updates: Record<string, unknown>) => {
+    if (!socket?.id) return;
+    const now = Date.now();
+    emit('task:update', {
+      taskId,
+      projectId,
+      userId: user?.id,
+      updates,
+      updatedAt: now,
+      senderId: socket.id
+    });
   };
 
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -230,12 +173,7 @@ export default function ProjectBoard({ projectId, tasks, boardBackground, onTask
   const [startX, setStartX] = useState(0);
   const [scrollLeft, setScrollLeft] = useState(0);
 
-  const handleUpdateAppearance = (taskId: string, data: { background?: string; textColor?: string }) => {
-    if (onUpdateTaskAppearance) {
-      onUpdateTaskAppearance(taskId, data);
-    }
-    closeMenu();
-  };
+  const quickMenuTask = activeMenuId ? localTasks.find((t) => t.id === activeMenuId) : undefined;
 
   const handleMouseDown = (e: React.MouseEvent) => {
     if (!scrollRef.current) return;
@@ -307,31 +245,14 @@ export default function ProjectBoard({ projectId, tasks, boardBackground, onTask
 
   return (
     <DragDropContext onDragStart={onDragStart} onDragEnd={onDragEnd}>
-      <div className="h-full w-full overflow-hidden flex flex-col bg-transparent">
-        <div className="px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <LayoutDashboard className="h-6 w-6 text-emerald-600" />
-            <h1 className="text-xl font-black text-slate-800 tracking-tight">Bảng công việc</h1>
-          </div>
-          <div className="relative group">
-            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 group-focus-within:text-emerald-500 transition-colors" />
-            <input
-              type="text"
-              placeholder="Tìm kiếm công việc..."
-              className="pl-10 pr-4 py-2.5 bg-white/80 backdrop-blur-sm border border-slate-200 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 w-64 transition-all shadow-sm"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
-          </div>
-        </div>
-
+      <div className="flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden bg-transparent">
         <div 
           ref={scrollRef}
           onMouseDown={handleMouseDown}
           onMouseLeave={handleMouseLeave}
           onMouseUp={handleMouseUp}
           onMouseMove={handleMouseMove}
-          className="flex-1 flex overflow-x-auto overflow-y-hidden gap-6 custom-scrollbar cursor-grab pt-2"
+          className="board-scrollbar-x flex h-full min-h-0 min-w-0 flex-1 basis-0 items-stretch gap-6 overflow-x-auto overflow-y-hidden px-6 pb-2 pt-0 custom-scrollbar cursor-grab"
         >
           <div className="w-10 shrink-0" />
 
@@ -340,15 +261,14 @@ export default function ProjectBoard({ projectId, tasks, boardBackground, onTask
             return (
               <div 
                 key={col.id} 
-                className="w-80 shrink-0 flex flex-col h-fit max-h-full rounded-2xl border border-white/30 shadow-lg overflow-hidden mb-10"
-                style={{ background: boardBackground ? 'rgba(255,255,255,0.18)' : '#ebecf0', backdropFilter: boardBackground ? 'blur(12px)' : 'none' }}
+                className="flex h-full max-h-full min-h-0 w-80 shrink-0 flex-col overflow-hidden rounded-2xl border border-slate-200/80 bg-white/88 shadow-md backdrop-blur-md"
               >
-                <div className="p-4 flex items-center justify-between bg-white/40 border-b border-slate-200 backdrop-blur-sm">
-                  <div className="flex items-center space-x-2">
-                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${col.color}`}>
+                <div className="shrink-0 p-4 flex items-center justify-between border-b border-slate-200/90 bg-slate-50/95">
+                  <div className="flex items-center space-x-2 min-w-0">
+                    <span className={`shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full ${col.color}`}>
                       {columnTasks.length}
                     </span>
-                    <h3 className={`text-sm font-bold transition-colors ${boardBackground ? 'text-white' : 'text-slate-700'}`}>
+                    <h3 className="text-sm font-bold text-slate-800 truncate">
                       {col.title}
                     </h3>
                   </div>
@@ -359,26 +279,24 @@ export default function ProjectBoard({ projectId, tasks, boardBackground, onTask
                     <div 
                       {...provided.droppableProps}
                       ref={provided.innerRef}
-                      className={`flex-1 overflow-y-auto overflow-x-hidden p-3 space-y-3 custom-scrollbar transition-colors ${
-                        snapshot.isDraggingOver ? 'bg-emerald-50/30' : ''
+                      className={`board-scrollbar-y min-h-0 min-w-0 flex-1 shrink overflow-y-auto overflow-x-hidden overscroll-y-contain p-3 space-y-3 pr-2 custom-scrollbar transition-colors ${
+                        snapshot.isDraggingOver ? 'bg-emerald-50/50' : 'bg-slate-50/40'
                       }`}
                     >
                       {columnTasks.map((task, index) => (
-                        <TaskCard 
+                        <TaskCard
                           key={task.id}
                           task={task}
                           index={index}
-                          boardBackground={boardBackground}
                           onTaskClick={onTaskClick}
                           handleOpenMenu={handleOpenMenu}
+                          isQuickEditSource={activeMenuId === task.id}
                         />
                       ))}
                       {provided.placeholder}
                       
                       {columnTasks.length === 0 && !snapshot.isDraggingOver && (
-                         <div className={`h-24 border-2 border-dashed rounded-xl flex items-center justify-center text-[10px] italic transition-colors ${
-                           boardBackground ? 'border-white/20 text-white/50' : 'border-slate-300/40 text-slate-400'
-                         }`}>
+                         <div className="h-24 border-2 border-dashed border-slate-300/70 rounded-xl flex items-center justify-center text-[10px] font-medium text-slate-500 italic bg-white/30">
                             Không có công việc nào
                          </div>
                       )}
@@ -388,11 +306,7 @@ export default function ProjectBoard({ projectId, tasks, boardBackground, onTask
 
                 <button 
                   onClick={() => onAddTask(col.id)}
-                  className={`m-3 p-2 flex items-center justify-center gap-2 text-[11px] font-bold rounded-lg transition-all ${
-                    boardBackground 
-                      ? 'text-white/70 hover:text-white hover:bg-white/10' 
-                      : 'text-slate-500 hover:text-emerald-600 hover:bg-emerald-50'
-                  }`}
+                  className="m-3 shrink-0 p-2 flex items-center justify-center gap-2 text-[11px] font-bold rounded-lg transition-all text-slate-600 hover:text-emerald-700 hover:bg-emerald-50/90 border border-transparent hover:border-emerald-100"
                 >
                   <Plus className="h-3 w-3" />
                   Thêm thẻ
@@ -405,23 +319,88 @@ export default function ProjectBoard({ projectId, tasks, boardBackground, onTask
         </div>
       </div>
       
-      {activeMenuId && menuPosition && createPortal(
-        <>
-          <div className="fixed inset-0 z-[9998]" onClick={closeMenu} />
-          <div 
-            className="fixed z-[9999]"
-            style={{ 
-              top: menuPosition.top, 
-              left: menuPosition.left 
+      {activeMenuId && quickEditCardRect && menuPosition && quickMenuTask && createPortal(
+        <div className="fixed inset-0 z-[10000]">
+          <div className="absolute inset-0 bg-slate-900/55" onClick={closeMenu} aria-hidden />
+          <TaskCardFace
+            task={quickMenuTask}
+            snapshot={QUICK_EDIT_SNAP}
+            onOpenMenu={() => {}}
+            showEditControls={false}
+            className="pointer-events-auto !cursor-default !shadow-2xl !ring-2 !ring-white/90"
+            style={{
+              position: 'fixed',
+              top: quickEditCardRect.top,
+              left: quickEditCardRect.left,
+              width: quickEditCardRect.width,
+              minHeight: quickEditCardRect.height,
+              zIndex: 10001,
             }}
+            onClick={(e) => {
+              e.stopPropagation();
+              closeMenu();
+              onTaskClick(quickMenuTask);
+            }}
+          />
+          <div
+            className="pointer-events-auto fixed z-[10002]"
+            style={{ top: menuPosition.top, left: menuPosition.left }}
+            onClick={(e) => e.stopPropagation()}
           >
-            <TaskAppearancePopover 
-              currentBackground={localTasks.find(t => t.id === activeMenuId)?.background || undefined}
-              currentTextColor={localTasks.find(t => t.id === activeMenuId)?.textColor || undefined}
-              onUpdate={(data) => handleUpdateAppearance(activeMenuId, data)}
+            <TaskCardQuickMenu
+              layout="trello"
+              view={quickMenuView}
+              onViewChange={setQuickMenuView}
+              onClose={closeMenu}
+              task={{
+                id: quickMenuTask.id,
+                status: quickMenuTask.status,
+                background: quickMenuTask.background,
+                textColor: quickMenuTask.textColor,
+                coverMode: quickMenuTask.coverMode,
+                labels: quickMenuTask.labels,
+                startDate: quickMenuTask.startDate,
+                dueDate: quickMenuTask.dueDate
+              }}
+              projectId={projectId}
+              onOpenCard={() => {
+                closeMenu();
+                onTaskClick(quickMenuTask);
+              }}
+              onAppearance={(data) => {
+                onUpdateTaskAppearance?.(activeMenuId, data);
+              }}
+              onLabels={(ids, updated) => {
+                onOptimisticTaskPatch?.(activeMenuId, { labels: updated, labelIds: ids } as any);
+                emitTaskUpdate(activeMenuId, { labelIds: ids });
+              }}
+              onSaveDates={(start, due) => {
+                onOptimisticTaskPatch?.(activeMenuId, { startDate: start, dueDate: due } as any);
+                emitTaskUpdate(activeMenuId, { startDate: start, dueDate: due });
+                closeMenu();
+              }}
+              onMove={(status) => {
+                onOptimisticUpdate?.(activeMenuId, status);
+                emit(
+                  'task:move',
+                  { taskId: activeMenuId, projectId, status, userId: user?.id },
+                  (res: { status?: string; message?: string }) => {
+                    if (res?.status === 'error') {
+                      toast.error(res?.message || 'Không thể di chuyển thẻ');
+                      onTaskUpdate();
+                    }
+                  }
+                );
+                closeMenu();
+              }}
+              onArchive={() => {
+                onOptimisticTaskPatch?.(activeMenuId, { archived: true } as any);
+                emitTaskUpdate(activeMenuId, { archived: true });
+                closeMenu();
+              }}
             />
           </div>
-        </>,
+        </div>,
         document.body
       )}
     </DragDropContext>

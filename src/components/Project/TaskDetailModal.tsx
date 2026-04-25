@@ -1,4 +1,7 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import dynamic from 'next/dynamic';
+import { getEditorTools } from '@/lib/editorTools';
+import { parseTaskDescriptionData, taskDescriptionHasContent } from '@/lib/taskDescription';
 import { format, differenceInSeconds } from 'date-fns';
 import { 
   CheckSquare, 
@@ -16,7 +19,9 @@ import {
   Search,
   Check,
   Link as LinkIcon,
-  Eye
+  Eye,
+  Maximize2,
+  Image as ImageIcon
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useSocket, getSocket } from '@/hooks/useSocket';
@@ -30,8 +35,20 @@ import AssigneePopover from './AssigneePopover';
 import LabelPopover from './LabelPopover';
 import ChecklistPopover from './ChecklistPopover';
 import AttachmentPopover from './AttachmentPopover';
+import { TaskAppearancePopover } from './TaskAppearancePopover';
+import { getCoverStripStyle, isTaskCoverImageUrl } from '@/lib/boardBackgroundStyle';
 import { ExternalLink, Download, FileVideo, FileText, FileImage, FileCode, File as FileIcon } from 'lucide-react';
 import ConfirmModal from '@/components/Modal/ConfirmModal';
+import DescriptionEditorExpandModal from '@/components/Modal/DescriptionEditorExpandModal';
+
+const EditorJs = dynamic(
+  () => import('react-editor-js').then((mod) => mod.createReactEditorJS()),
+  { ssr: false }
+);
+const EditorJsViewer = dynamic(
+  () => import('react-editor-js').then((mod) => mod.createReactEditorJS()),
+  { ssr: false }
+);
 
 /** Icon “Thêm cảm xúc” kiểu Facebook: mặt cười viền + vòng tròn nhỏ có dấu + */
 function AddReactionGlyph({ className }: { className?: string }) {
@@ -71,6 +88,15 @@ function isPersistedActivityId(id: unknown): id is string {
   return typeof id === 'string' && ACTIVITY_UUID_RE.test(id);
 }
 
+/** Chỉ dòng thời gian: bình luận + hệ thống thêm/xóa/đính kèm; cập nhật/diễn giải khác xem khi bật chi tiết */
+const SYSTEM_ACTIONS_IN_COMPACT = new Set([
+  'ADD_CHECKLIST_GROUP',
+  'DELETE_CHECKLIST_GROUP',
+  'DELETE_CHECKLIST',
+  'ATTACH_FILE',
+  'DELETE_ATTACH'
+]);
+
 interface TaskDetailModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -82,9 +108,59 @@ interface TaskDetailModalProps {
   projectMembersList?: any[];
 }
 
-export default function TaskDetailModal({ isOpen, onClose, task, projectId, onUpdate, onDataChange, projectMembersList }: TaskDetailModalProps) {
-  if (!isOpen) return null;
+function TaskCoverMenuButton({
+  projectId,
+  taskId,
+  localTask,
+  onUpdate,
+  variant = 'default',
+}: {
+  projectId: string;
+  taskId: string;
+  localTask: any;
+  onUpdate: (d: any) => void;
+  variant?: 'default' | 'onCover';
+}) {
+  const onCover = variant === 'onCover';
+  return (
+    <Popover className="relative">
+      <Popover.Button
+        className={
+          onCover
+            ? 'inline-flex items-center gap-1.5 rounded-lg border border-white/40 bg-black/20 px-2.5 py-1.5 text-xs font-bold text-white shadow-sm backdrop-blur-sm transition-colors hover:border-white/55 hover:bg-black/30'
+            : 'inline-flex items-center gap-2 rounded-xl border border-slate-200/90 bg-white/95 px-3 py-1.5 text-xs font-bold text-slate-700 shadow-sm backdrop-blur-sm hover:bg-white'
+        }
+      >
+        <ImageIcon className={`h-3.5 w-3.5 ${onCover ? 'text-white' : 'text-slate-500'}`} />
+        Thay đổi bìa
+      </Popover.Button>
+      <Transition
+        as={Fragment}
+        enter="transition ease-out duration-100"
+        enterFrom="transform scale-95 opacity-0"
+        enterTo="transform scale-100 opacity-100"
+        leave="transition ease-in duration-75"
+        leaveFrom="transform scale-100 opacity-100"
+        leaveTo="transform scale-95 opacity-0"
+      >
+        <Popover.Panel
+          className="absolute left-0 z-[200] mt-2 w-max max-w-[min(100vw-1.5rem,22.5rem)]"
+        >
+          <TaskAppearancePopover
+            currentBackground={localTask.background || undefined}
+            currentTextColor={localTask.textColor || undefined}
+            currentCoverMode={localTask.coverMode}
+            projectId={projectId}
+            taskId={taskId}
+            onUpdate={onUpdate}
+          />
+        </Popover.Panel>
+      </Transition>
+    </Popover>
+  );
+}
 
+export default function TaskDetailModal({ isOpen, onClose, task, projectId, onUpdate, onDataChange, projectMembersList }: TaskDetailModalProps) {
   const [newComment, setNewComment] = useState('');
   const [localTask, setLocalTask] = useState<any>(task);
   const [nowMs, setNowMs] = useState<number>(Date.now());
@@ -92,6 +168,27 @@ export default function TaskDetailModal({ isOpen, onClose, task, projectId, onUp
   const [editedTitle, setEditedTitle] = useState(task?.title || '');
   const [isEditingDesc, setIsEditingDesc] = useState(false);
   const [editedDesc, setEditedDesc] = useState(task?.description || '');
+  const [descEditSessionKey, setDescEditSessionKey] = useState(0);
+  const [descriptionExpandOpen, setDescriptionExpandOpen] = useState(false);
+  const descEditorRef = useRef<any>(null);
+  const descEditorTools = useMemo(() => getEditorTools(), []);
+  const descEditDefault = useMemo(
+    () => parseTaskDescriptionData(editedDesc),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- remount khi bật sửa / phiên sửa mới, không theo từng ký tự
+    [descEditSessionKey, isEditingDesc]
+  );
+  const handleDescEditorInit = useCallback((core: any) => {
+    descEditorRef.current = core;
+  }, []);
+  const handleDescEditorChange = useCallback(async () => {
+    if (!descEditorRef.current) return;
+    try {
+      const data = await descEditorRef.current.save();
+      setEditedDesc(JSON.stringify(data));
+    } catch {
+      // ignore
+    }
+  }, []);
   const [isUpdating, setIsUpdating] = useState(false);
   const [projectMembers, setProjectMembers] = useState<any[]>([]);
   const [editingActivityId, setEditingActivityId] = useState<string | null>(null);
@@ -104,6 +201,8 @@ export default function TaskDetailModal({ isOpen, onClose, task, projectId, onUp
   const [editingChecklistId, setEditingChecklistId] = useState<string | null>(null);
   const [editingChecklistTitle, setEditingChecklistTitle] = useState('');
   const [isSubmittingComment, setIsSubmittingComment] = useState(false);
+  /** false = gọn: tin nhắn + thêm/xóa; true = tất cả (UPDATE, tick checklist, v.v.) */
+  const [showFullActivityLog, setShowFullActivityLog] = useState(false);
   const [isMentionOpen, setIsMentionOpen] = useState(false);
   const [mentionQuery, setMentionQuery] = useState('');
   const [mentionStart, setMentionStart] = useState<number | null>(null);
@@ -152,6 +251,25 @@ export default function TaskDetailModal({ isOpen, onClose, task, projectId, onUp
       );
     })
     .slice(0, 8);
+
+  const activitiesSource = localTask?.activities;
+  const displayedActivities = useMemo(() => {
+    const list = Array.isArray(activitiesSource) ? activitiesSource : [];
+    if (showFullActivityLog) return list;
+    return list.filter((a: any) => {
+      if (a.type === 'COMMENT') return true;
+      if (a.type === 'SYSTEM' && a.action && SYSTEM_ACTIONS_IN_COMPACT.has(a.action)) return true;
+      return false;
+    });
+  }, [activitiesSource, showFullActivityLog]);
+
+  const allActivityCount = Array.isArray(activitiesSource) ? activitiesSource.length : 0;
+  const hasMoreActivitiesThanCompact =
+    allActivityCount > 0 && displayedActivities.length < allActivityCount;
+
+  useEffect(() => {
+    setShowFullActivityLog(false);
+  }, [task?.id]);
 
   const updateMentionState = (value: string, caretPos: number) => {
     const beforeCaret = value.slice(0, caretPos);
@@ -524,8 +642,6 @@ export default function TaskDetailModal({ isOpen, onClose, task, projectId, onUp
     return () => clearInterval(timer);
   }, [isOpen]);
 
-  if (!isOpen || !localTask) return null;
-
   const emitTaskUpdate = (updates: any) => {
     emit('task:update', { taskId: localTask.id, projectId, userId: user?.id, updates }, (response: any) => {
       setIsUpdating(false);
@@ -554,6 +670,11 @@ export default function TaskDetailModal({ isOpen, onClose, task, projectId, onUp
     const optimisticTask = { ...localTask, ...updates };
     setLocalTask(optimisticTask);
     if (onDataChange) onDataChange(optimisticTask);
+
+    // Bìa tạm từ chọn file (blob:) — hiển thị ngay, không debounce/emit; URL thật sẽ gọi lại khi upload xong
+    if (updates.background !== undefined && String(updates.background).startsWith('blob:')) {
+      return;
+    }
 
     setIsUpdating(true);
 
@@ -1127,20 +1248,136 @@ export default function TaskDetailModal({ isOpen, onClose, task, projectId, onUp
     emit('activity:react', { activityId: activity.id, projectId, userId: user?.id, emoji });
   };
 
+  if (!isOpen || !localTask) return null;
+
   return (
-    <div className="fixed inset-0 z-50 flex justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-in fade-in duration-300 overflow-y-auto items-start pt-[56px]">
-      <div className="bg-[#f1f2f4] w-full max-w-6xl rounded-[32px] shadow-[0_30px_70px_rgba(0,0,0,0.5)] flex flex-col animate-in zoom-in-95 duration-300 text-[#172b4d] relative min-h-[90vh] border border-white/20">
-            
-            {/* Modal Header */}
-            <div className="px-10 py-6 flex justify-between items-start shrink-0 bg-[#f1f2f4] z-20 rounded-t-[32px]">
-          <div className="flex-1 pt-2">
-            <div className="flex items-center space-x-3 mb-6">
-              <div className="relative group">
-                <select 
+    <>
+    <div
+      className="fixed inset-0 z-50 flex justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-in fade-in duration-300 overflow-y-auto items-start pt-[56px]"
+      onClick={onClose}
+      role="presentation"
+    >
+      <div
+        className="relative flex min-h-[90vh] w-full max-w-6xl flex-col overflow-visible rounded-[32px] border border-white/20 bg-[#f1f2f4] text-[#172b4d] shadow-[0_30px_70px_rgba(0,0,0,0.5)] animate-in zoom-in-95 duration-300"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+      >
+        <div
+          className="absolute right-2 top-2 z-[60] flex items-center gap-0.5 sm:right-3 sm:top-3"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button
+            type="button"
+            className="rounded-lg border border-slate-200/90 bg-white/95 p-2 text-slate-500 shadow-sm backdrop-blur-sm transition-all hover:bg-white hover:text-slate-800"
+            title="Đính kèm"
+          >
+            <Paperclip className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            className="rounded-lg border border-slate-200/90 bg-white/95 p-2 text-slate-500 shadow-sm backdrop-blur-sm transition-all hover:bg-white hover:text-slate-800"
+            title="Tùy chọn thẻ"
+          >
+            <MoreVertical className="h-4 w-4" />
+          </button>
+          <div className="mx-0.5 h-5 w-px shrink-0 bg-slate-300" />
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg p-2 text-slate-500 transition-all hover:bg-rose-100/90 hover:text-rose-600"
+            title="Đóng"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+        {(() => {
+                const tbg = localTask.background;
+                const has = Boolean(tbg && String(tbg).trim());
+                const isImg = isTaskCoverImageUrl(tbg);
+                if (!has) {
+                  return (
+                    <div className="relative w-full shrink-0 border-b border-slate-200/60">
+                      <div className="overflow-hidden rounded-t-[32px]">
+                        <div
+                          className="h-40 w-full bg-slate-200/50"
+                          style={{ background: 'linear-gradient(180deg, #c9d2de 0%, #e8ecf1 100%)' }}
+                        />
+                      </div>
+                      <div className="absolute left-3 top-3 z-20 sm:left-4 sm:top-4">
+                        <TaskCoverMenuButton
+                          projectId={projectId}
+                          taskId={localTask.id}
+                          localTask={localTask}
+                          onUpdate={(d) => handleUpdateTask(d)}
+                          variant="onCover"
+                        />
+                      </div>
+                    </div>
+                  );
+                }
+                if (isImg) {
+                  return (
+                    <div className="relative w-full shrink-0 border-b border-slate-200/60">
+                      <div className="relative min-h-[12rem] w-full overflow-hidden rounded-t-[32px] bg-slate-800 sm:min-h-[14rem]">
+                        <div
+                          className="h-full min-h-[12rem] w-full bg-center bg-no-repeat sm:min-h-[14rem]"
+                          style={{
+                            backgroundImage: `url(${String(tbg).trim()})`,
+                            backgroundSize: 'contain',
+                            backgroundPosition: 'center',
+                          }}
+                        />
+                      </div>
+                      <div className="absolute left-3 top-3 z-20 sm:left-4 sm:top-4">
+                        <TaskCoverMenuButton
+                          projectId={projectId}
+                          taskId={localTask.id}
+                          localTask={localTask}
+                          onUpdate={(d) => handleUpdateTask(d)}
+                          variant="onCover"
+                        />
+                      </div>
+                    </div>
+                  );
+                }
+                return (
+                  <div className="relative w-full shrink-0 border-b border-slate-200/60">
+                    <div className="overflow-hidden rounded-t-[32px]">
+                      <div
+                        className="min-h-[12rem] w-full sm:min-h-[14rem]"
+                        style={getCoverStripStyle(String(tbg))}
+                      />
+                    </div>
+                    <div className="absolute left-3 top-3 z-20 sm:left-4 sm:top-4">
+                      <TaskCoverMenuButton
+                        projectId={projectId}
+                        taskId={localTask.id}
+                        localTask={localTask}
+                        onUpdate={(d) => handleUpdateTask(d)}
+                        variant="onCover"
+                      />
+                    </div>
+                  </div>
+                );
+              })()}
+
+        <div className="shrink-0 border-b border-slate-200/50 bg-[#f1f2f4] px-5 pb-4 pt-4 sm:px-8 sm:py-4 lg:px-10">
+          <div className="min-w-0 pr-16 sm:pr-20">
+            <div className="mb-4 sm:mb-5">
+              <div className="relative inline-block">
+                <select
                   value={localTask.status}
                   onChange={(e) => handleUpdateTask({ status: e.target.value })}
-                  className="px-3 py-1.5 bg-white hover:bg-slate-50 border border-slate-200 rounded-xl text-[11px] font-black cursor-pointer transition-all flex items-center outline-none shadow-sm uppercase tracking-wider appearance-none pr-8 relative text-slate-600"
-                  style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' fill=\'none\' viewBox=\'0 0 24 24\' stroke=\'currentColor\'%3E%3Cpath stroke-linecap=\'round\' stroke-linejoin=\'round\' stroke-width=\'2\' d=\'M19 9l-7 7-7-7\' /%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 8px center', backgroundSize: '12px' }}
+                  className="cursor-pointer appearance-none rounded-xl border border-slate-200/90 bg-white px-3 py-1.5 text-[11px] font-black uppercase tracking-wider text-slate-600 shadow-sm outline-none transition-all hover:bg-slate-50"
+                  style={{
+                    backgroundImage:
+                      'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' fill=\'none\' viewBox=\'0 0 24 24\' stroke=\'currentColor\'%3E%3Cpath stroke-linecap=\'round\' stroke-linejoin=\'round\' stroke-width=\'2\' d=\'M19 9l-7 7-7-7\' /%3E%3C/svg%3E")',
+                    backgroundRepeat: 'no-repeat',
+                    backgroundPosition: 'right 8px center',
+                    backgroundSize: '12px',
+                    paddingRight: '2rem',
+                  }}
                 >
                   <option value="PENDING">Chờ xử lý</option>
                   <option value="IN_PROGRESS">Đang thực hiện</option>
@@ -1151,16 +1388,16 @@ export default function TaskDetailModal({ isOpen, onClose, task, projectId, onUp
                 </select>
               </div>
             </div>
-            
-            <div className="flex items-start space-x-5">
-              <div className="w-10 h-10 rounded-2xl bg-white border border-slate-200 shadow-sm mt-1 flex items-center justify-center shrink-0">
-                 <CheckSquare className="h-5 w-5 text-emerald-500" />
+
+            <div className="flex items-start gap-4 sm:gap-5">
+              <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-slate-200 bg-white shadow-sm">
+                <CheckSquare className="h-5 w-5 text-emerald-500" />
               </div>
-              <div className="flex-1">
+              <div className="min-w-0 flex-1">
                 {isEditingTitle ? (
-                  <input 
+                  <input
                     autoFocus
-                    className="text-2xl font-black leading-tight bg-white border-2 border-indigo-500 rounded-xl px-4 py-1.5 w-full outline-none shadow-xl shadow-indigo-500/10 animate-in zoom-in-95 duration-75"
+                    className="w-full rounded-xl border-2 border-indigo-500 bg-white px-4 py-1.5 text-2xl font-black leading-tight text-[#172b4d] shadow-xl shadow-indigo-500/10 outline-none"
                     value={editedTitle}
                     onChange={(e) => setEditedTitle(e.target.value)}
                     onBlur={() => {
@@ -1175,35 +1412,40 @@ export default function TaskDetailModal({ isOpen, onClose, task, projectId, onUp
                     }}
                   />
                 ) : (
-                  <h2 
+                  <h2
                     onClick={() => setIsEditingTitle(true)}
-                    className="text-2xl font-black leading-tight cursor-text hover:bg-slate-200/50 px-3 py-1.5 -ml-3 rounded-xl transition-all"
+                    className="cursor-text rounded-xl px-1 -ml-1 text-2xl font-black leading-snug text-[#172b4d] transition-colors hover:bg-slate-200/60"
                   >
                     {localTask.title}
                   </h2>
                 )}
-                <div className="mt-2 text-xs font-bold text-slate-400 pl-0.5">
-                   trong danh sách <span className="underline cursor-pointer hover:text-slate-600 transition-all">{localTask.status === 'PENDING' ? 'Chờ xử lý' : localTask.status === 'IN_PROGRESS' ? 'Đang thực hiện' : localTask.status === 'DONE' ? 'Hoàn thành' : localTask.status === 'WAITING_FOR_DOCUMENT' ? 'Chờ tài liệu' : localTask.status === 'DELAYED' ? 'Tạm hoãn' : localTask.status === 'APPROVED' ? 'Đã duyệt' : localTask.status}</span>
+                <div className="mt-1.5 pl-0.5 text-xs font-bold text-slate-500">
+                  trong danh sách{' '}
+                  <span className="cursor-pointer text-slate-500 underline transition-colors hover:text-slate-700">
+                    {localTask.status === 'PENDING'
+                      ? 'Chờ xử lý'
+                      : localTask.status === 'IN_PROGRESS'
+                        ? 'Đang thực hiện'
+                        : localTask.status === 'DONE'
+                          ? 'Hoàn thành'
+                          : localTask.status === 'WAITING_FOR_DOCUMENT'
+                            ? 'Chờ tài liệu'
+                            : localTask.status === 'DELAYED'
+                              ? 'Tạm hoãn'
+                              : localTask.status === 'APPROVED'
+                                ? 'Đã duyệt'
+                                : localTask.status}
+                  </span>
                 </div>
               </div>
             </div>
           </div>
-
-          <div className="flex items-center space-x-2 pt-2">
-             <button className="p-2.5 hover:bg-slate-200 rounded-xl text-slate-400 hover:text-slate-600 transition-all shadow-sm bg-white border border-slate-100"><Paperclip className="h-4.5 w-4.5" /></button>
-             <button className="p-2.5 hover:bg-slate-200 rounded-xl text-slate-400 hover:text-slate-600 transition-all shadow-sm bg-white border border-slate-100"><MoreVertical className="h-4.5 w-4.5" /></button>
-             <div className="w-px h-6 bg-slate-300 mx-1" />
-             <button onClick={onClose} className="p-2.5 hover:bg-rose-50 rounded-xl text-slate-400 hover:text-rose-500 transition-all">
-               <X className="h-5 w-5" />
-             </button>
-          </div>
         </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-0 min-h-full">
+          <div className="grid min-h-0 flex-1 grid-cols-1 gap-0 lg:grid-cols-12">
             
             {/* Main Content (Left) */}
-            <div className="lg:col-span-9 p-10 space-y-12 border-r border-slate-100 bg-white rounded-tl-[48px]">
-              
+            <div className="space-y-10 border-slate-200 bg-white p-6 sm:space-y-10 sm:p-8 lg:col-span-9 lg:space-y-12 lg:rounded-bl-[32px] lg:p-10 lg:border-r max-lg:rounded-b-none">
               {/* Task Metadata Row (Labels & Members) */}
               <div className="flex flex-wrap gap-12 items-start pl-8">
                 
@@ -1289,26 +1531,54 @@ export default function TaskDetailModal({ isOpen, onClose, task, projectId, onUp
                 <div className="ml-12">
                   {isEditingDesc ? (
                     <div className="space-y-4 animate-in fade-in slide-in-from-top-1 duration-200">
-                      <textarea 
-                        autoFocus
-                        placeholder="Thêm mô tả chi tiết hơn..."
-                        className="w-full bg-white border-2 border-indigo-500 rounded-2xl p-5 text-sm text-slate-700 outline-none transition-all min-h-[180px] font-medium shadow-2xl shadow-indigo-500/5 focus:shadow-indigo-500/10"
-                        value={editedDesc}
-                        onChange={(e) => setEditedDesc(e.target.value)}
-                      />
+                      <div className="flex flex-wrap items-center justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setDescriptionExpandOpen(true)}
+                          className="inline-flex items-center gap-1.5 rounded-xl border border-indigo-200 bg-indigo-50/80 px-3 py-1.5 text-[10px] font-black uppercase tracking-wider text-indigo-700 transition hover:border-indigo-300 hover:bg-indigo-100"
+                          title="Mở màn hình lớn để trình bày nội dung"
+                        >
+                          <Maximize2 className="h-3.5 w-3.5" />
+                          Mở rộng
+                        </button>
+                      </div>
+                      <div className="prose prose-sm max-w-none w-full border-2 border-indigo-500 rounded-2xl p-4 bg-white min-h-[200px] shadow-2xl shadow-indigo-500/5">
+                        <EditorJs
+                          key={descEditSessionKey}
+                          onInitialize={handleDescEditorInit}
+                          onChange={handleDescEditorChange}
+                          defaultValue={descEditDefault}
+                          placeholder="Thêm mô tả chi tiết hơn..."
+                          tools={descEditorTools as any}
+                        />
+                      </div>
                       <div className="flex items-center space-x-3">
-                        <button 
-                          onClick={() => {
-                            handleUpdateTask({ description: editedDesc });
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            let nextDesc = editedDesc;
+                            if (descEditorRef.current) {
+                              try {
+                                const saved = await descEditorRef.current.save();
+                                nextDesc = JSON.stringify(saved);
+                              } catch (e) {
+                                console.error(e);
+                                toast.error('Không lưu được nội dung mô tả');
+                                return;
+                              }
+                            }
+                            handleUpdateTask({ description: nextDesc });
                             setIsEditingDesc(false);
                           }}
                           className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2 rounded-xl text-xs font-black transition-all shadow-lg shadow-indigo-100 active:scale-95"
                         >
                           Lưu lại
                         </button>
-                        <button 
+                        <button
+                          type="button"
                           onClick={() => {
                             setEditedDesc(localTask.description || '');
+                            setDescEditSessionKey((k) => k + 1);
                             setIsEditingDesc(false);
                           }}
                           className="hover:bg-slate-100 text-slate-500 px-6 py-2 rounded-xl text-xs font-black transition-all"
@@ -1318,11 +1588,41 @@ export default function TaskDetailModal({ isOpen, onClose, task, projectId, onUp
                       </div>
                     </div>
                   ) : (
-                    <div 
-                      onClick={() => setIsEditingDesc(true)}
-                      className={`w-full bg-slate-50 hover:bg-slate-100/50 rounded-2xl p-5 text-sm text-slate-700 transition-all min-h-[80px] cursor-pointer border border-transparent hover:border-slate-200 leading-relaxed font-medium ${!localTask.description ? 'text-slate-400 italic' : ''}`}
+                    <div
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => {
+                        setEditedDesc(localTask.description || '');
+                        setDescEditSessionKey((k) => k + 1);
+                        setIsEditingDesc(true);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          setEditedDesc(localTask.description || '');
+                          setDescEditSessionKey((k) => k + 1);
+                          setIsEditingDesc(true);
+                        }
+                      }}
+                      className={`w-full bg-slate-50 hover:bg-slate-100/50 rounded-2xl p-5 text-sm text-slate-700 transition-all min-h-[80px] cursor-pointer border border-transparent hover:border-slate-200 leading-relaxed font-medium ${
+                        !taskDescriptionHasContent(localTask.description) ? 'text-slate-400 italic' : ''
+                      }`}
                     >
-                      {localTask.description || 'Thêm mô tả chi tiết hơn để mọi người cùng nắm bắt...'}
+                      {taskDescriptionHasContent(localTask.description) ? (
+                        <div
+                          className="pointer-events-none [&_.ce-toolbar]:hidden [&_.ce-toolbox]:hidden"
+                          aria-hidden
+                        >
+                          <EditorJsViewer
+                            key={`${localTask.id}-view-${(localTask.description || '').length}-${(localTask.description || '').slice(-24)}`}
+                            defaultValue={parseTaskDescriptionData(localTask.description)}
+                            readOnly
+                            tools={descEditorTools as any}
+                          />
+                        </div>
+                      ) : (
+                        <span>Thêm mô tả chi tiết hơn để mọi người cùng nắm bắt...</span>
+                      )}
                     </div>
                   )}
                 </div>
@@ -1677,10 +1977,24 @@ export default function TaskDetailModal({ isOpen, onClose, task, projectId, onUp
                       </div>
                       <h3 className="text-sm font-extrabold text-slate-700 uppercase tracking-wide mb-2">Hoạt động thảo luận</h3>
                     </div>
-                    <button className="text-[10px] px-3 py-1.5 bg-slate-50 hover:bg-slate-100 rounded-xl font-black transition-all text-slate-400 uppercase tracking-widest border border-slate-100">
-                       Hiện chi tiết
+                    <button
+                      type="button"
+                      onClick={() => setShowFullActivityLog((v) => !v)}
+                      className={`text-[10px] px-3 py-1.5 rounded-xl font-black transition-all uppercase tracking-widest border ${
+                        showFullActivityLog
+                          ? 'bg-indigo-50 hover:bg-indigo-100 text-indigo-600 border-indigo-100'
+                          : 'bg-slate-50 hover:bg-slate-100 text-slate-500 border-slate-100'
+                      }`}
+                    >
+                      {showFullActivityLog ? 'Thu gọn' : 'Hiện chi tiết'}
                     </button>
                   </div>
+                  {!showFullActivityLog && hasMoreActivitiesThanCompact && (
+                    <p className="text-[11px] text-slate-400 mb-4 -mt-4 pl-8">
+                      Đang xem bản gọn: bình luận và thao tác thêm / xóa. Bật <span className="font-semibold text-slate-500">Hiện chi tiết</span> để xem
+                      cập nhật thẻ, tick checklist, v.v.
+                    </p>
+                  )}
 
                   <div className="flex space-x-4 mb-10">
                      <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center shrink-0 shadow-sm overflow-hidden mt-1">
@@ -1784,9 +2098,19 @@ export default function TaskDetailModal({ isOpen, onClose, task, projectId, onUp
                   </div>
 
                   <div className="space-y-4 ml-0 sm:ml-5">
-                     {localTask.activities?.map((activity: any) => {
+                    {displayedActivities.length === 0 && allActivityCount === 0 && (
+                      <p className="text-sm text-slate-400 pl-1">Chưa có hoạt động nào.</p>
+                    )}
+                    {displayedActivities.length === 0 && allActivityCount > 0 && !showFullActivityLog && (
+                      <p className="text-sm text-slate-500 pl-1">
+                        Chỉ còn nhật ký cập nhật (đổi thẻ, tiến độ, v.v.) — bấm <span className="font-semibold">Hiện chi tiết</span> ở trên
+                        để xem toàn bộ.
+                      </p>
+                    )}
+                     {displayedActivities.map((activity: any) => {
                         const d = new Date(activity.createdAt);
                         const dateStr = `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')} ${d.getDate()} thg ${d.getMonth() + 1}, ${d.getFullYear()}`;
+                        const isCompact = !showFullActivityLog;
                         
                         if (activity.type === 'SYSTEM') {
                            return (
@@ -1796,7 +2120,7 @@ export default function TaskDetailModal({ isOpen, onClose, task, projectId, onUp
                                    </div>
                                    <div className="flex-1 min-w-0 text-[14px]">
                                       <span className="font-bold text-slate-800 mr-1">{activity.user.displayName}</span>
-                                      <span className="text-slate-600">{activity.content}</span>
+                                      <span className={`text-slate-600 ${isCompact ? 'line-clamp-2' : ''}`}>{activity.content}</span>
                                       <div className="text-[11px] text-slate-400 mt-0.5">
                                          {dateStr}
                                       </div>
@@ -1839,7 +2163,11 @@ export default function TaskDetailModal({ isOpen, onClose, task, projectId, onUp
                                   </div>
                                 ) : (
                                   <>
-                                    <div className="p-3 bg-white border border-slate-200 rounded-tr-[12px] rounded-b-[12px] text-[14px] text-slate-800 leading-relaxed shadow-sm shadow-slate-100 mb-1 inline-block min-w-[50%]">
+                                    <div
+                                      className={`p-3 bg-white border border-slate-200 rounded-tr-[12px] rounded-b-[12px] text-[14px] text-slate-800 leading-relaxed shadow-sm shadow-slate-100 mb-1 inline-block min-w-[50%] max-w-full ${
+                                        !showFullActivityLog ? 'line-clamp-3' : ''
+                                      }`}
+                                    >
                                        {activity.content}
                                     </div>
                                     <div className="flex flex-wrap items-center gap-2 pl-1 mt-1">
@@ -1974,7 +2302,7 @@ export default function TaskDetailModal({ isOpen, onClose, task, projectId, onUp
             </div>
 
             {/* Side Content (Right) - ACTIONS Sidebar */}
-            <div className="lg:col-span-3 p-8 space-y-8 bg-slate-50/20 rounded-tr-[48px]">
+            <div className="lg:col-span-3 p-8 space-y-8 bg-slate-50/20 rounded-tr-[48px] max-lg:rounded-b-[32px] lg:rounded-br-[32px]">
               <div className="space-y-4">
                 <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] pl-1">Thao tác thẻ</h4>
                 
@@ -2149,5 +2477,18 @@ export default function TaskDetailModal({ isOpen, onClose, task, projectId, onUp
           onCancel={() => setChecklistToDelete(null)}
         />
       </div>
+    <DescriptionEditorExpandModal
+      isOpen={descriptionExpandOpen}
+      onClose={() => setDescriptionExpandOpen(false)}
+      value={editedDesc}
+      title="Soạn mô tả công việc"
+      zIndexClass="z-[200]"
+      onApply={(json) => {
+        setEditedDesc(json);
+        setDescEditSessionKey((k) => k + 1);
+        setDescriptionExpandOpen(false);
+      }}
+    />
+    </>
   );
 }

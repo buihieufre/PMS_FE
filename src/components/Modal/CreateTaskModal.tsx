@@ -1,4 +1,7 @@
-import { useState, useEffect, useRef, Fragment } from 'react';
+import { useState, useEffect, useRef, Fragment, useMemo, useCallback, useLayoutEffect } from 'react';
+import dynamic from 'next/dynamic';
+import { getEditorTools } from '@/lib/editorTools';
+import { parseTaskDescriptionData } from '@/lib/taskDescription';
 import { 
   CheckSquare, 
   Paperclip, 
@@ -15,13 +18,20 @@ import {
   Check,
   Calendar,
   Tag,
-  Link as LinkIcon
+  Link as LinkIcon,
+  Maximize2
 } from 'lucide-react';
 import axiosInstance from '@/lib/axios';
 import { toast } from 'sonner';
 import { Popover, Transition } from '@headlessui/react';
 import TaskDatePicker from '../Project/TaskDatePicker';
 import { useSocket } from '@/hooks/useSocket';
+import DescriptionEditorExpandModal from './DescriptionEditorExpandModal';
+
+const EditorJs = dynamic(
+  () => import('react-editor-js').then((mod) => mod.createReactEditorJS()),
+  { ssr: false }
+);
 
 interface CreateTaskModalProps {
   isOpen: boolean;
@@ -47,7 +57,36 @@ export default function CreateTaskModal({ isOpen, onClose, projectId, department
   }
 
   const [title, setTitle] = useState('');
+  /** JSON OutputData từ Editor.js; đồng bộ bằng onChange (khi mở lại modal vẫn còn nội dung). */
   const [description, setDescription] = useState('');
+  const [descriptionEditorKey, setDescriptionEditorKey] = useState(0);
+  const descriptionEditorRef = useRef<any>(null);
+  const tools = useMemo(() => getEditorTools(), []);
+  // Chỉ khi descriptionEditorKey đổi (mở modal / tạo xong): lấy description hiện tại; không phụ thuộc mỗi lần gõ để không reset editor.
+  const descriptionDefault = useMemo(
+    () => parseTaskDescriptionData(description),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- cố ý chỉ remount editor khi đổi key
+    [descriptionEditorKey]
+  );
+  const handleDescriptionInit = useCallback((core: any) => {
+    descriptionEditorRef.current = core;
+  }, []);
+  const handleDescriptionChange = useCallback(async () => {
+    if (!descriptionEditorRef.current) return;
+    try {
+      const data = await descriptionEditorRef.current.save();
+      setDescription(JSON.stringify(data));
+    } catch {
+      // ignore
+    }
+  }, []);
+  const prevIsOpen = useRef(false);
+  useLayoutEffect(() => {
+    if (isOpen && !prevIsOpen.current) {
+      setDescriptionEditorKey((k) => k + 1);
+    }
+    prevIsOpen.current = isOpen;
+  }, [isOpen]);
   const [assigneeIds, setAssigneeIds] = useState<string[]>([]);
   const [labelIds, setLabelIds] = useState<string[]>([]);
   const [labels, setLabels] = useState<Label[]>([]);
@@ -62,6 +101,8 @@ export default function CreateTaskModal({ isOpen, onClose, projectId, department
   const [status, setStatus] = useState<string>(initialStatus || 'PENDING');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showForcePrompt, setShowForcePrompt] = useState(false);
+  const [descriptionExpandOpen, setDescriptionExpandOpen] = useState(false);
+  const submitInFlightRef = useRef(false);
   const { emit } = useSocket(projectId);
 
   // Member Search State
@@ -114,7 +155,8 @@ export default function CreateTaskModal({ isOpen, onClose, projectId, department
       toast.error('Tiêu đề công việc là bắt buộc');
       return;
     }
-    
+    if (submitInFlightRef.current) return;
+    submitInFlightRef.current = true;
     setIsSubmitting(true);
     try {
       const selectedMembersForDepartment = members.filter(m => assigneeIds.includes(m.userId));
@@ -127,9 +169,19 @@ export default function CreateTaskModal({ isOpen, onClose, projectId, department
       );
       const derivedDepartmentId = selectedDepartmentIds.length === 1 ? selectedDepartmentIds[0] : null;
 
+      let descriptionPayload = description;
+      if (descriptionEditorRef.current) {
+        try {
+          const saved = await descriptionEditorRef.current.save();
+          descriptionPayload = JSON.stringify(saved);
+        } catch (e) {
+          console.error('[CreateTask] Editor save failed', e);
+        }
+      }
+
       const payload = {
         title: title.trim(),
-        description,
+        description: descriptionPayload,
         status,
         departmentId: derivedDepartmentId,
         assigneeIds: assigneeIds,
@@ -195,8 +247,9 @@ export default function CreateTaskModal({ isOpen, onClose, projectId, department
       
       toast.success('Công việc đã được tạo thành công');
       // Reset form
-      setTitle(''); 
-      setDescription(''); 
+      setTitle('');
+      setDescription('');
+      setDescriptionEditorKey((k) => k + 1);
       setAssigneeIds([]); 
       setLabelIds([]);
       setChecklists([{ id: `draft-${Date.now()}`, title: 'Checklist', items: [], newItem: '' }]);
@@ -216,6 +269,7 @@ export default function CreateTaskModal({ isOpen, onClose, projectId, department
         toast.error(error.response?.data?.error || 'Tạo công việc thất bại');
       }
     } finally {
+      submitInFlightRef.current = false;
       setIsSubmitting(false);
     }
   };
@@ -299,10 +353,12 @@ export default function CreateTaskModal({ isOpen, onClose, projectId, department
   };
 
   return (
+    <>
     <div className="fixed inset-0 z-50 flex items-start justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200 overflow-y-auto">
       <form 
         onSubmit={(e) => {
           e.preventDefault();
+          if (showForcePrompt) return;
           submitTask();
         }}
         className="bg-[#f1f2f4] w-full max-w-4xl max-h-[calc(100vh-2rem)] rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-200 text-[#172b4d] my-0"
@@ -365,7 +421,14 @@ export default function CreateTaskModal({ isOpen, onClose, projectId, department
                 <p className="font-black text-base mb-1">Cảnh báo khối lượng công việc</p>
                 <p className="opacity-90 font-medium">Người dùng này đã có 3 hoặc nhiều công việc đang thực hiện. Vẫn tiếp tục giao việc?</p>
                 <div className="mt-5 flex gap-3">
-                  <button type="button" onClick={() => submitTask(true)} className="bg-orange-600 text-white px-6 py-2 rounded-xl text-xs hover:bg-orange-700 font-bold shadow-lg shadow-orange-100 transition-all active:scale-95">Tiếp tục giao</button>
+                  <button
+                    type="button"
+                    disabled={isSubmitting}
+                    onClick={() => submitTask(true)}
+                    className="bg-orange-600 text-white px-6 py-2 rounded-xl text-xs font-bold shadow-lg shadow-orange-100 transition-all active:scale-95 hover:bg-orange-700 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {isSubmitting ? 'Đang tạo…' : 'Tiếp tục giao'}
+                  </button>
                   <button type="button" onClick={() => setShowForcePrompt(false)} className="bg-white border border-slate-200 text-slate-700 px-6 py-2 rounded-xl text-xs hover:bg-slate-50 font-bold transition-all">Hủy</button>
                 </div>
               </div>
@@ -640,19 +703,34 @@ export default function CreateTaskModal({ isOpen, onClose, projectId, department
               
               {/* Description */}
               <section className="space-y-4">
-                <div className="flex items-center space-x-4 font-black text-slate-800">
-                  <div className="w-8 h-8 rounded-lg bg-indigo-50 flex items-center justify-center">
-                    <AlignLeft className="h-4 w-4 text-indigo-500" />
+                <div className="flex flex-wrap items-center justify-between gap-2 pr-0 font-black text-slate-800">
+                  <div className="flex items-center space-x-4">
+                    <div className="w-8 h-8 rounded-lg bg-indigo-50 flex items-center justify-center">
+                      <AlignLeft className="h-4 w-4 text-indigo-500" />
+                    </div>
+                    <h3 className="text-sm tracking-tight uppercase">Mô tả</h3>
                   </div>
-                  <h3 className="text-sm tracking-tight uppercase">Mô tả</h3>
+                  <button
+                    type="button"
+                    onClick={() => setDescriptionExpandOpen(true)}
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-[10px] font-black uppercase tracking-wider text-indigo-600 shadow-sm transition hover:border-indigo-200 hover:bg-indigo-50"
+                    title="Mở màn hình lớn để trình bày nội dung"
+                  >
+                    <Maximize2 className="h-3.5 w-3.5" />
+                    Mở rộng
+                  </button>
                 </div>
                 <div className="ml-12 relative group">
-                  <textarea 
-                    placeholder="Mô tả những gì cần thực hiện..."
-                    className="w-full bg-slate-50 hover:bg-slate-100/50 focus:bg-white border-2 border-transparent focus:border-indigo-500 rounded-2xl p-5 text-sm text-slate-700 outline-none transition-all min-h-[160px] placeholder:text-slate-300 font-medium shadow-none focus:shadow-xl focus:shadow-indigo-500/5"
-                    value={description}
-                    onChange={(e) => setDescription(e.target.value)}
-                  />
+                  <div className="prose prose-sm max-w-none w-full border-2 border-transparent group-hover:border-slate-200/80 focus-within:border-indigo-500 rounded-2xl p-4 bg-slate-50 group-hover:bg-slate-100/50 focus-within:bg-white min-h-[180px] transition-all focus-within:ring-2 focus-within:ring-indigo-500/20 focus-within:shadow-xl focus-within:shadow-indigo-500/5">
+                    <EditorJs
+                      key={descriptionEditorKey}
+                      onInitialize={handleDescriptionInit}
+                      onChange={handleDescriptionChange}
+                      defaultValue={descriptionDefault}
+                      placeholder="Mô tả những gì cần thực hiện..."
+                      tools={tools as any}
+                    />
+                  </div>
                 </div>
               </section>
 
@@ -843,16 +921,6 @@ export default function CreateTaskModal({ isOpen, onClose, projectId, department
                           <p className="text-[10px] font-bold text-slate-400 uppercase mb-2">Vị trí cột</p>
                           <p className="text-sm font-black text-white">{status === 'PENDING' ? 'Chờ xử lý' : status === 'IN_PROGRESS' ? 'Đang thực hiện' : status === 'DONE' ? 'Hoàn thành' : status === 'WAITING_FOR_DOCUMENT' ? 'Chờ tài liệu' : status === 'DELAYED' ? 'Tạm hoãn' : status === 'APPROVED' ? 'Đã duyệt' : status}</p>
                        </div>
-                       
-                       <div className="p-4 bg-white/5 rounded-2xl border border-white/10">
-                          <p className="text-[10px] font-bold text-slate-400 uppercase mb-2">Độ ưu tiên</p>
-                          <select className="bg-transparent border-none text-sm font-black text-white outline-none w-full p-0 cursor-pointer">
-                             <option value="LOW" className="text-slate-900">Thấp</option>
-                             <option value="NORMAL" className="text-slate-900" selected>Thường</option>
-                             <option value="HIGH" className="text-slate-900">Cao</option>
-                             <option value="URGENT" className="text-slate-900">Khẩn cấp</option>
-                          </select>
-                       </div>
                     </div>
 
                     <button 
@@ -885,5 +953,17 @@ export default function CreateTaskModal({ isOpen, onClose, projectId, department
         </div>
       </form>
     </div>
+    <DescriptionEditorExpandModal
+      isOpen={descriptionExpandOpen}
+      onClose={() => setDescriptionExpandOpen(false)}
+      value={description}
+      title="Soạn mô tả công việc"
+      onApply={(json) => {
+        setDescription(json);
+        setDescriptionEditorKey((k) => k + 1);
+        setDescriptionExpandOpen(false);
+      }}
+    />
+    </>
   );
 }

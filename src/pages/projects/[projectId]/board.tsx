@@ -8,11 +8,11 @@ import CreateTaskModal from '@/components/Modal/CreateTaskModal';
 import BoardBackgroundPopover from '@/components/Project/BoardBackgroundPopover';
 import axiosInstance from '@/lib/axios';
 import { 
-  LayoutDashboard, 
   Settings, 
   Users, 
   ChevronRight,
-  Image as ImageIcon
+  Image as ImageIcon,
+  Search
 } from 'lucide-react';
 import Link from 'next/link';
 import { PageHeader } from '@/components/Layout/PageHeader';
@@ -21,10 +21,15 @@ import { toast } from 'sonner';
 import ManageMemberModal from '@/components/Modal/ManageMemberModal';
 import { useAuthStore } from '@/store/authStore';
 import { shouldShowTaskOnBoard } from '@/lib/boardTaskVisibility';
+import { getBoardBackgroundStyle, type TaskCoverMode } from '@/lib/boardBackgroundStyle';
 
 export default function BoardPage() {
   const router = useRouter();
-  const { projectId } = router.query;
+  const { projectId: projectIdParam } = router.query;
+  const projectId = useMemo(
+    () => (Array.isArray(projectIdParam) ? projectIdParam[0] : projectIdParam) as string | undefined,
+    [projectIdParam]
+  );
   const [project, setProject] = useState<any>(null);
   const [tasks, setTasks] = useState<any[]>([]);
   const [members, setMembers] = useState<any[]>([]);
@@ -37,6 +42,7 @@ export default function BoardPage() {
   const lastBgUpdateRef = useRef<number>(0);
   const lastTaskUpdatesRef = useRef<Record<string, number>>({});
   const [isBackgroundPopoverOpen, setIsBackgroundPopoverOpen] = useState<boolean | 'bg'>(false);
+  const [boardSearch, setBoardSearch] = useState('');
 
   const { user } = useAuthStore() as { user: any };
 
@@ -54,11 +60,11 @@ export default function BoardPage() {
         axiosInstance.get(`/projects/${projectId}/tasks`),
         axiosInstance.get(`/projects/${projectId}/members`)
       ]);
-      setProject(projectRes.data);
+      const p = projectRes.data;
+      setProject(p);
       setTasks(tasksRes.data);
       setMembers(membersRes.data);
-      // Set board background from project data
-      setBoardBackground(projectRes.data.background || null);
+      setBoardBackground(typeof p?.background === 'string' && p.background.trim() ? p.background : null);
     } catch (error) {
       console.error('Error fetching board data:', error);
     } finally {
@@ -66,7 +72,7 @@ export default function BoardPage() {
     }
   }, [projectId]);
 
-  const { socket } = useSocket(projectId as string);
+  const { socket } = useSocket(projectId);
 
   useEffect(() => {
     fetchData();
@@ -152,12 +158,14 @@ export default function BoardPage() {
       });
     };
 
-    const hBackground = ({ projectId: changedId, background, updatedAt, senderId }: any) => {
-      if (changedId === projectId) {
+    const hBackground = ({ projectId: changedId, background, updatedAt, senderId, userId: authorUserId }: any) => {
+      if (projectId && changedId === projectId) {
+        if (authorUserId && user?.id && authorUserId === user.id) return;
         if (senderId === s.id) return;
         if (updatedAt && updatedAt <= lastBgUpdateRef.current) return;
         if (updatedAt) lastBgUpdateRef.current = updatedAt;
-        setBoardBackground(background);
+        setBoardBackground(typeof background === 'string' && background.trim() ? background : null);
+        setProject((p: any) => (p ? { ...p, background } : p));
       }
     };
 
@@ -302,21 +310,40 @@ export default function BoardPage() {
     setTasks(prev => prev.map((t: any) => t.id === taskId ? { ...t, status: newStatus } : t));
   }, []);
 
-  const handleUpdateTaskAppearance = useCallback((taskId: string, data: { background?: string, textColor?: string }) => {
+  const handleOptimisticTaskPatch = useCallback((taskId: string, patch: Record<string, unknown>) => {
+    const now = Date.now();
+    lastTaskUpdatesRef.current[taskId] = now;
+    if (patch.archived === true) {
+      setTasks((prev) => prev.filter((t: any) => t.id !== taskId));
+      setSelectedTask((prev: any) => (prev?.id === taskId ? null : prev));
+      return;
+    }
+    const { labelIds: _l, ...rest } = patch;
+    setTasks((prev) => prev.map((t: any) => (t.id === taskId ? { ...t, ...rest } : t)));
+  }, []);
+
+  const handleUpdateTaskAppearance = useCallback((taskId: string, data: { background?: string; textColor?: string; coverMode?: TaskCoverMode | null }) => {
     // Record timestamp to ignore stale socket echoes
     const now = Date.now();
     lastTaskUpdatesRef.current[taskId] = now;
 
-    // Optimistic UI update at the source of truth
-    setTasks(prev => prev.map((t: any) => t.id === taskId ? { ...t, ...data } : t));
+    const normalized =
+      data.coverMode === 'FULL' ? { ...data, coverMode: 'SPLIT' as const } : data;
 
-    // Emit via socket
+    // Optimistic UI update at the source of truth
+    setTasks((prev) => prev.map((t: any) => (t.id === taskId ? { ...t, ...normalized } : t)));
+
+    // Ảnh tạm từ file (blob:) — chỉ cập nhật UI, gửi server sau khi upload xong
+    if (data.background && String(data.background).startsWith('blob:')) {
+      return;
+    }
+
     if (socket) {
       socket.emit('task:update', {
         taskId,
         projectId,
         userId: user?.id,
-        updates: data,
+        updates: normalized,
         updatedAt: now,
         senderId: socket.id
       });
@@ -360,32 +387,14 @@ export default function BoardPage() {
       <Head>
         <title>{project ? `${project.name} - Bảng công việc | PMS` : 'Bảng công việc | PMS'}</title>
       </Head>
-      {/* Full-bleed background layer — covers content area only (below topbar, right of sidebar) */}
-      {boardBackground && (
-        <div
-          className="fixed bottom-0 right-0 top-16 left-64 transition-all duration-500 pointer-events-none"
-          style={{
-            zIndex: 0,
-            ...(boardBackground.startsWith('linear-gradient') || boardBackground.startsWith('#') || boardBackground.startsWith('rgb')
-              ? { background: boardBackground }
-              : { backgroundImage: `url(${boardBackground})`, backgroundSize: 'cover', backgroundPosition: 'center', backgroundRepeat: 'no-repeat' })
-          }}
-        />
-      )}
-
-      <div className="flex flex-col h-full relative board-page-active" style={{ zIndex: 1 }}>
-        <div className="px-10 pt-6">
+      <div
+        className="relative z-[1] flex h-full min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden board-page-active"
+        style={boardBackground ? getBoardBackgroundStyle(boardBackground) : undefined}
+      >
+        <div className="shrink-0 px-10 pt-6">
           <PageHeader 
-            title={
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-emerald-100 rounded-lg">
-                <LayoutDashboard className="h-5 w-5 text-emerald-600" />
-              </div>
-              <span>{project?.name || 'Loading...'} / Board</span>
-            </div>
-          }
-          description="Manage tasks and collaborate with your team in real-time."
-          breadcrumbs={
+            title={project?.name ? `${project.name} / Bảng công việc` : 'Bảng công việc'}
+            breadcrumbs={
             <div className="flex items-center text-xs font-bold text-slate-400 uppercase tracking-widest gap-2">
               <Link href="/projects" className="hover:text-emerald-500 transition-colors">Projects</Link>
               <ChevronRight className="h-3 w-3" />
@@ -441,10 +450,8 @@ export default function BoardPage() {
                            <span className="whitespace-nowrap">Change Background</span>
                            {boardBackground && (
                              <div
-                               className="ml-auto w-5 h-5 rounded-full border border-slate-200 shadow-sm"
-                               style={{
-                                 background: boardBackground.startsWith('http') ? `url(${boardBackground}) center/cover` : boardBackground
-                               }}
+                               className="ml-auto w-5 h-5 rounded-full border border-slate-200 shadow-sm overflow-hidden"
+                               style={getBoardBackgroundStyle(boardBackground)}
                              />
                            )}
                          </button>
@@ -457,14 +464,15 @@ export default function BoardPage() {
                  )}
 
                  {/* Background Popover sub-panel */}
-                 {isBackgroundPopoverOpen === 'bg' && (
+                 {isBackgroundPopoverOpen === 'bg' && projectId && (
                    <BoardBackgroundPopover
-                     projectId={projectId as string}
+                     projectId={projectId}
                      currentBackground={boardBackground}
                      onClose={() => setIsBackgroundPopoverOpen(false)}
                      onBackgroundChange={(bg) => {
                        lastBgUpdateRef.current = Date.now();
                        setBoardBackground(bg);
+                       setProject((prev: any) => (prev ? { ...prev, background: bg } : prev));
                        setIsBackgroundPopoverOpen(false);
                      }}
                    />
@@ -475,14 +483,28 @@ export default function BoardPage() {
         />
         </div>
 
-        {/* Board Container */}
-        <div className="flex-1 relative min-h-0 overflow-hidden">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+        <div className="shrink-0 px-10 pb-3 flex justify-end">
+          <div className="relative w-full max-w-sm group">
+            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 group-focus-within:text-emerald-500 transition-colors" />
+            <input
+              type="text"
+              placeholder="Tìm kiếm công việc..."
+              className="w-full pl-10 pr-4 py-2.5 bg-white/90 backdrop-blur-sm border border-slate-200/90 rounded-2xl text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/25 focus:border-emerald-500 transition-all shadow-sm"
+              value={boardSearch}
+              onChange={(e) => setBoardSearch(e.target.value)}
+            />
+          </div>
+        </div>
+
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
            <ProjectBoard 
-              projectId={projectId as string} 
+              projectId={projectId!} 
               tasks={tasks}
-              boardBackground={boardBackground}
+              searchTerm={boardSearch}
               onTaskUpdate={fetchData} 
               onOptimisticUpdate={handleOptimisticUpdate}
+              onOptimisticTaskPatch={handleOptimisticTaskPatch}
               onUpdateTaskAppearance={handleUpdateTaskAppearance}
               onOptimisticReorder={handleOptimisticReorder}
               onTaskClick={(task) => setSelectedTask(task)}
@@ -491,6 +513,7 @@ export default function BoardPage() {
                 setIsCreateModalOpen(true);
               }}
            />
+        </div>
         </div>
       </div>
       

@@ -2,7 +2,6 @@ import { useState, useRef, useEffect } from 'react';
 import { Image, Palette, Link, Upload, X, Check, Loader2 } from 'lucide-react';
 import axiosInstance from '@/lib/axios';
 import { toast } from 'sonner';
-import { useSocket } from '@/hooks/useSocket';
 
 interface BoardBackgroundPopoverProps {
   projectId: string;
@@ -43,7 +42,6 @@ export default function BoardBackgroundPopover({
   const [activeTab, setActiveTab] = useState<Tab>('gradient');
   const [urlInput, setUrlInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const { emit } = useSocket(projectId);
   const fileRef = useRef<HTMLInputElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
 
@@ -60,6 +58,7 @@ export default function BoardBackgroundPopover({
   const applyBackground = async (value: string | null, file?: File) => {
     if (file) {
       setIsLoading(true);
+      const previous = currentBackground ?? null;
       try {
         const formData = new FormData();
         formData.append('image', file);
@@ -68,32 +67,27 @@ export default function BoardBackgroundPopover({
         });
         const newBg = res.data.project.background;
         onBackgroundChange(newBg);
-        emit('project:changeBackground', { projectId, background: newBg });
         toast.success('Đã cập nhật hình nền bảng!');
       } catch (err) {
+        onBackgroundChange(previous);
         toast.error('Cập nhật hình nền thất bại');
       } finally {
         setIsLoading(false);
       }
-    } else {
-      // Optimistic Update
-      onBackgroundChange(value);
-      
-      // Emit via Socket for instant feedback to others
-      emit('project:changeBackground', { 
-        projectId, 
-        background: value,
-        updatedAt: Date.now(),
-        senderId: (emit as any).socket?.id // Try to get socket id from emit context or just let backend handle it
-      });
-      
-      // Persistence in background (silent)
-      try {
-        await axiosInstance.patch(`/projects/${projectId}/background`, { background: value });
-      } catch (err) {
-        console.error('Failed to persist background change:', err);
-        // We could rollback if critical, but for BG it's usually fine
-      }
+      return;
+    }
+
+    // Giống optimistic patch khác: đổi giao diện ngay, lưu server sau — không gọi lại onBackgroundChange khi thành công (tránh giật màu vì chuỗi lệch / setState 2 lần).
+    const previous = currentBackground ?? null;
+    onBackgroundChange(value);
+
+    try {
+      await axiosInstance.patch(`/projects/${projectId}/background`, { background: value });
+      toast.success('Đã cập nhật hình nền bảng!');
+    } catch (err: any) {
+      onBackgroundChange(previous);
+      const msg = err?.response?.data?.error || err?.message || 'Lỗi mạng';
+      toast.error(`Lưu hình nền thất bại: ${msg}`);
     }
   };
 

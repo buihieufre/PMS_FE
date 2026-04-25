@@ -19,9 +19,9 @@ interface MainLayoutProps {
   fullWidth?: boolean;
 }
 
-export default function MainLayout({ 
-  children, 
-  hideSidebar = false, 
+export default function MainLayout({
+  children,
+  hideSidebar = false,
   hideTopbar = false,
   noPadding = false,
   noScroll = false,
@@ -127,12 +127,18 @@ export default function MainLayout({
   }, [user, on, off, addNotification]);
 
   return (
-    <div className="flex h-screen overflow-hidden bg-slate-50">
+    <div className="flex h-screen w-full min-w-0 overflow-hidden bg-slate-50">
       {!hideSidebar && <Sidebar />}
-      <div className={`flex-1 flex flex-col min-w-0 ${!hideSidebar ? 'ml-64' : ''}`}>
-        {!hideTopbar && <Topbar />}
-        <main className={`flex-1 ${noScroll ? 'overflow-hidden' : 'overflow-auto'} ${noPadding ? 'p-0' : 'p-8 pb-20'}`}>
-          <div className={`min-h-full flex flex-col ${fullWidth ? '' : 'max-w-[1600px] 2xl:max-w-[1800px] mx-auto'}`}>
+      <div className="flex min-h-0 w-full min-w-0 flex-1 flex-col">
+        {!hideTopbar && <Topbar showSidebarToggle={!hideSidebar} />}
+        <main
+          className={`min-h-0 flex-1 ${noScroll ? 'flex flex-col overflow-hidden' : 'overflow-auto'} ${noPadding ? 'p-0' : 'p-8 pb-20'}`}
+        >
+          <div
+            className={`flex min-h-0 w-full flex-col ${
+              noScroll ? 'h-full' : 'min-h-full'
+            } ${fullWidth ? '' : 'max-w-[1600px] 2xl:max-w-[1800px] mx-auto'}`}
+          >
             {children}
           </div>
         </main>
