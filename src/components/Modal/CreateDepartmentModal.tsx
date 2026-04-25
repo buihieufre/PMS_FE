@@ -23,13 +23,13 @@ export default function CreateDepartmentModal({ isOpen, onClose, onSuccess }: Cr
     setIsSubmitting(true);
     try {
       await axiosInstance.post(`/departments`, { name, description });
-      toast.success('Department created successfully');
+      toast.success('Đã tạo phòng ban thành công');
       setName('');
       setDescription('');
       onSuccess();
       onClose();
     } catch (error: any) {
-      toast.error(error.response?.data?.error || 'Failed to create department');
+      toast.error(error.response?.data?.error || 'Không thể tạo phòng ban');
     } finally {
       setIsSubmitting(false);
     }
@@ -39,7 +39,7 @@ export default function CreateDepartmentModal({ isOpen, onClose, onSuccess }: Cr
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
       <div className="bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden">
         <div className="flex justify-between items-center p-4 border-b border-slate-100">
-          <h2 className="text-lg font-semibold text-slate-800">Add Department</h2>
+          <h2 className="text-lg font-semibold text-slate-800">Thêm phòng ban</h2>
           <button onClick={onClose} className="p-1 hover:bg-slate-100 rounded-md text-slate-400 transition-colors">
             <X className="h-5 w-5" />
           </button>
@@ -47,25 +47,25 @@ export default function CreateDepartmentModal({ isOpen, onClose, onSuccess }: Cr
         <form onSubmit={handleSubmit} className="p-6">
           <div className="mb-6">
             <label className="block text-sm font-medium text-slate-700 mb-1">
-              Department Name <span className="text-red-500">*</span>
+              Tên phòng ban <span className="text-red-500">*</span>
             </label>
             <input
               type="text"
               required
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. Design, Engineering"
+              placeholder="v.d. Thiết kế, Kỹ thuật"
               className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-slate-900"
             />
           </div>
           <div className="mb-6">
             <label className="block text-sm font-medium text-slate-700 mb-1">
-              Description / Function <span className="text-slate-400 text-xs font-normal">(Optional)</span>
+              Mô tả / Chức năng <span className="text-slate-400 text-xs font-normal">(Tùy chọn)</span>
             </label>
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="e.g. Responsible for product UI/UX..."
+              placeholder="v.d. Chịu trách nhiệm thiết kế UI/UX sản phẩm..."
               className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-slate-900 min-h-[80px]"
             />
           </div>
@@ -75,7 +75,7 @@ export default function CreateDepartmentModal({ isOpen, onClose, onSuccess }: Cr
               onClick={onClose}
               className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-md hover:bg-slate-50 transition-colors"
             >
-              Cancel
+              Hủy
             </button>
             <button
               type="submit"
@@ -83,7 +83,7 @@ export default function CreateDepartmentModal({ isOpen, onClose, onSuccess }: Cr
               className="px-4 py-2 text-sm font-medium text-white bg-slate-900 border border-transparent rounded-md hover:bg-slate-800 transition-colors flex items-center disabled:opacity-70"
             >
               {isSubmitting && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-              Create
+              Tạo mới
             </button>
           </div>
         </form>

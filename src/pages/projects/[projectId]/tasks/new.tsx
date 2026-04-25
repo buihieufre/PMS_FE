@@ -26,10 +26,10 @@ export default function NewTask() {
         assigneeId: assigneeId || undefined,
         departmentId: departmentId || undefined,
       });
-      toast.success('Task created');
+      toast.success('Đã tạo công việc');
       router.push(`/projects/${projectId}/tasks`);
     } catch (err) {
-      toast.error('Failed to create task');
+      toast.error('Tạo công việc thất bại');
     }
   };
 
@@ -43,33 +43,35 @@ export default function NewTask() {
           <ArrowLeft className="h-5 w-5" />
         </Link>
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Create New Task</h1>
+          <h1 className="text-2xl font-bold text-slate-900">Tạo công việc mới</h1>
         </div>
       </div>
 
       <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm max-w-3xl">
         <form onSubmit={handleSubmit} className="p-8 space-y-6">
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Title *</label>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Tiêu đề *</label>
             <input
               type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               required
+              placeholder="Nhập tiêu đề công việc"
               className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-slate-900"
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Description</label>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Mô tả</label>
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               rows={4}
+              placeholder="Mô tả chi tiết công việc..."
               className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-slate-900"
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Deadline</label>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Hạn chót</label>
             <input
               type="date"
               value={deadline}
@@ -78,22 +80,22 @@ export default function NewTask() {
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Assignee ID (optional)</label>
+            <label className="block text-sm font-medium text-slate-700 mb-1">ID Người được giao (tùy chọn)</label>
             <input
               type="text"
               value={assigneeId}
               onChange={(e) => setAssigneeId(e.target.value)}
-              placeholder="User UUID"
+              placeholder="Mã định danh người dùng (UUID)"
               className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-slate-900"
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Department ID (optional)</label>
+            <label className="block text-sm font-medium text-slate-700 mb-1">ID Phòng ban (tùy chọn)</label>
             <input
               type="text"
               value={departmentId}
               onChange={(e) => setDepartmentId(e.target.value)}
-              placeholder="Department UUID"
+              placeholder="Mã định danh phòng ban (UUID)"
               className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-slate-900"
             />
           </div>
@@ -103,7 +105,7 @@ export default function NewTask() {
               className="px-4 py-2 bg-slate-900 text-white rounded-md hover:bg-slate-800 transition-colors flex items-center"
             >
               <Save className="h-4 w-4 mr-2" />
-              Create Task
+              Tạo công việc
             </button>
           </div>
         </form>

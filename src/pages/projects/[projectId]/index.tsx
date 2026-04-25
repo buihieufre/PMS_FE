@@ -62,10 +62,10 @@ export default function ProjectDashboard() {
   };
 
   const handleDeleteMember = async (userId: string) => {
-    if (!confirm('Are you sure you want to remove this member from the project?')) return;
+    if (!confirm('Bạn có chắc chắn muốn xóa thành viên này khỏi dự án?')) return;
     try {
       await axiosInstance.delete(`/projects/${projectId}/members/${userId}`);
-      toast.success('Member removed');
+      toast.success('Đã xóa thành viên');
       fetchDashboardData();
     } catch (error: any) {
       toast.error(error.response?.data?.error || 'Failed to remove member');
@@ -102,13 +102,13 @@ export default function ProjectDashboard() {
       </Head>
       <div className="flex flex-col h-full bg-slate-50 min-h-[calc(100vh-64px)]">
         <PageHeader 
-          title={project ? project.name : 'Loading Project...'}
-          description="View project statistics, manage members, and track progress."
+          title={project ? project.name : 'Đang tải dự án...'}
+          description="Xem thống kê dự án, quản lý thành viên và theo dõi tiến độ."
           breadcrumbs={
             <div className="flex items-center text-xs font-bold text-slate-400 uppercase tracking-widest gap-2">
-              <Link href="/projects" className="hover:text-emerald-500 transition-colors">Projects</Link>
+              <Link href="/projects" className="hover:text-emerald-500 transition-colors">Dự án</Link>
               <span className="text-slate-300">/</span>
-              <span className="text-slate-600">Details</span>
+              <span className="text-slate-600">Chi tiết</span>
             </div>
           }
           actions={
@@ -118,7 +118,7 @@ export default function ProjectDashboard() {
                 className="px-6 py-2.5 text-sm font-bold bg-slate-900 text-white rounded-xl shadow-lg hover:shadow-slate-200 transition-all flex items-center active:scale-95"
               >
                 <LayoutDashboard className="h-4 w-4 mr-2" />
-                Open Board
+                Mở bảng công việc
               </Link>
                {isOwnerOrAdmin && (
                  <button 
@@ -126,7 +126,7 @@ export default function ProjectDashboard() {
                    className="px-6 py-2.5 text-sm font-bold bg-emerald-600 text-white rounded-xl shadow-lg shadow-emerald-100 hover:bg-emerald-700 transition-all flex items-center active:scale-95"
                  >
                    <Plus className="h-4 w-4 mr-2" />
-                   New Task
+                   Công việc mới
                  </button>
                )}
             </div>
@@ -139,7 +139,7 @@ export default function ProjectDashboard() {
             <div className="flex-1 flex items-center justify-center bg-white/50 rounded-xl border border-slate-200 border-dashed">
                <div className="flex flex-col items-center space-y-3">
                   <div className="w-8 h-8 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin" />
-                  <span className="text-xs font-medium text-slate-400">Loading workspace...</span>
+                  <span className="text-xs font-medium text-slate-400">Đang tải không gian làm việc...</span>
                </div>
             </div>
           ) : project ? (
@@ -147,7 +147,7 @@ export default function ProjectDashboard() {
               {/* Member List (Left Sidebar - Narrow) */}
               <div className="w-64 bg-white border border-slate-200 rounded-xl flex flex-col shadow-sm shrink-0 overflow-hidden">
                 <div className="p-4 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
-                  <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Project Team</h3>
+                  <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Đội ngũ dự án</h3>
                   {isOwnerOrAdmin && (
                     <button 
                       onClick={() => {
@@ -168,7 +168,7 @@ export default function ProjectDashboard() {
                     <SearchIcon className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
                     <input 
                       type="text" 
-                      placeholder="Find member..." 
+                      placeholder="Tìm thành viên..." 
                       value={memberSearchTerm}
                       onChange={(e) => setMemberSearchTerm(e.target.value)}
                       className="w-full pl-8 pr-3 py-1.5 bg-slate-50 border-transparent focus:bg-white focus:border-slate-200 rounded-lg text-xs outline-none transition-all"
@@ -210,7 +210,7 @@ export default function ProjectDashboard() {
                                        }}
                                        className="w-full text-left px-3 py-2 text-[10px] text-red-600 hover:bg-red-50 flex items-center"
                                      >
-                                       <Trash2 className="h-3 w-3 mr-2 text-red-400" /> Remove Member
+                                       <Trash2 className="h-3 w-3 mr-2 text-red-400" /> Xóa thành viên
                                      </button>
                                    )}
                                 </div>
@@ -223,7 +223,7 @@ export default function ProjectDashboard() {
                    
                    {filteredMembers.length === 0 && (
                      <div className="p-8 text-center text-[10px] text-slate-400 italic">
-                       {memberSearchTerm ? 'No results found' : 'No members yet'}
+                       {memberSearchTerm ? 'Không tìm thấy kết quả' : 'Chưa có thành viên'}
                      </div>
                    )}
                 </div>
@@ -243,10 +243,10 @@ export default function ProjectDashboard() {
                 <div className="w-16 h-16 bg-rose-50 rounded-full flex items-center justify-center mb-4">
                    <Info className="h-8 w-8 text-rose-500" />
                 </div>
-                <h3 className="text-lg font-bold text-slate-800">Project Workspace Not Found</h3>
-                <p className="text-slate-500 text-sm mt-1 max-w-xs text-center">We couldn't locate this project. It may have been deleted or you don't have access.</p>
+                <h3 className="text-lg font-bold text-slate-800">Không tìm thấy dự án</h3>
+                <p className="text-slate-500 text-sm mt-1 max-w-xs text-center">Chúng tôi không thể định vị dự án này. Dự án có thể đã bị xóa hoặc bạn không có quyền truy cập.</p>
                 <Link href="/projects" className="mt-6 text-emerald-600 font-bold hover:underline flex items-center">
-                   <ArrowLeft className="h-4 w-4 mr-2" /> Back to Projects
+                   <ArrowLeft className="h-4 w-4 mr-2" /> Quay lại danh sách dự án
                 </Link>
              </div>
           )}

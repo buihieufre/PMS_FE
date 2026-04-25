@@ -144,7 +144,7 @@ export const Topbar = () => {
                 {user?.displayName}
               </span>
               <span className="text-[10px] font-medium text-slate-500 uppercase tracking-widest bg-slate-100 px-1.5 py-0.5 rounded leading-none">
-                {user?.role}
+                {user?.role === 'ADMIN' ? 'Quản trị viên' : user?.role === 'OWNER' ? 'Chủ sở hữu' : user?.role === 'LEAD' ? 'Trưởng nhóm' : user?.role === 'EMPLOYEE' ? 'Nhân viên' : user?.role === 'FREELANCER' ? 'Cộng tác viên' : user?.role === 'CLIENT' ? 'Khách hàng' : user?.role}
               </span>
             </div>
             <div className="relative">

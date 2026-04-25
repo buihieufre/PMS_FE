@@ -3,7 +3,7 @@ import { Popover, Transition } from '@headlessui/react';
 import { Check, Plus, Pencil, X, Search } from 'lucide-react';
 import axiosInstance from '@/lib/axios';
 import { toast } from 'sonner';
-import { useSocket } from '@/hooks/useSocket';
+import { getSocket, useSocket } from '@/hooks/useSocket';
 
 interface Label {
   id: string;
@@ -26,8 +26,7 @@ export default function LabelPopover({ projectId, taskId, selectedLabels, onUpda
   const [labels, setLabels] = useState<Label[]>([]);
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  const { emit, on } = useSocket(projectId);
-  
+  const { emit } = useSocket(projectId);
   // Edit / Create State
   const [isEditing, setIsEditing] = useState(false);
   const [editLabelId, setEditLabelId] = useState<string | null>(null);
@@ -36,17 +35,26 @@ export default function LabelPopover({ projectId, taskId, selectedLabels, onUpda
 
   useEffect(() => {
     fetchLabels();
-
-    on('label:created', (label: Label) => {
-      setLabels(prev => prev.some(l => l.id === label.id) ? prev : [...prev, label]);
-    });
-    on('label:updated', (label: Label) => {
-      setLabels(prev => prev.map(l => l.id === label.id ? label : l));
-    });
-    on('label:deleted', ({ labelId }: any) => {
-      setLabels(prev => prev.filter(l => l.id !== labelId));
-    });
-  }, [projectId, on]);
+    if (typeof window === 'undefined') return;
+    const s = getSocket();
+    const hCreate = (label: Label) => {
+      setLabels((prev) => (prev.some((l) => l.id === label.id) ? prev : [...prev, label]));
+    };
+    const hUpdate = (label: Label) => {
+      setLabels((prev) => prev.map((l) => (l.id === label.id ? label : l)));
+    };
+    const hDelete = ({ labelId }: { labelId: string }) => {
+      setLabels((prev) => prev.filter((l) => l.id !== labelId));
+    };
+    s.on('label:created', hCreate);
+    s.on('label:updated', hUpdate);
+    s.on('label:deleted', hDelete);
+    return () => {
+      s.off('label:created', hCreate);
+      s.off('label:updated', hUpdate);
+      s.off('label:deleted', hDelete);
+    };
+  }, [projectId]);
 
   const fetchLabels = async () => {
     try {

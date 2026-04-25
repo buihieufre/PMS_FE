@@ -29,7 +29,7 @@ export default function ProjectsPage() {
       setProjects(response.data);
     } catch (error) {
       console.error('Failed to fetch projects', error);
-      toast.error('Failed to load projects');
+      toast.error('Không thể tải danh sách dự án');
     } finally {
       setLoading(false);
     }
@@ -43,11 +43,11 @@ export default function ProjectsPage() {
     if (!projectToDelete) return;
     try {
       await axiosInstance.delete(`/projects/${projectToDelete}`);
-      toast.success('Project deleted successfully');
+      toast.success('Dự án đã được xóa thành công');
       setProjectToDelete(null);
       fetchProjects();
     } catch (err) {
-      toast.error('Failed to delete project');
+      toast.error('Xóa dự án thất bại');
     }
   };
 
@@ -58,9 +58,9 @@ export default function ProjectsPage() {
       if (data.blocks && data.blocks.length > 0) {
         const pBlock = data.blocks.find((b: any) => b.type === 'paragraph');
         // Strip out simple HTML tags that EditorJS might produce
-        return pBlock ? pBlock.data.text.replace(/<[^>]*>?/gm, '') : 'Structured description...';
+        return pBlock ? pBlock.data.text.replace(/<[^>]*>?/gm, '') : 'Mô tả chi tiết...';
       }
-      return 'No description';
+      return 'Không có mô tả';
     } catch {
       return desc;
     }
@@ -73,15 +73,15 @@ export default function ProjectsPage() {
       </Head>
       <MainLayout>
       <PageHeader 
-        title="Projects"
-        description="Manage all your active and past projects."
+        title="Dự án"
+        description="Quản lý tất cả các dự án đang hoạt động và đã qua."
         actions={
           <button 
             onClick={() => router.push('/projects/new')}
             className="flex items-center px-6 py-2.5 bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 text-sm font-bold transition-all shadow-lg shadow-emerald-100 active:scale-95"
           >
             <Plus className="h-4 w-4 mr-2" />
-            Create Project
+            Tạo dự án mới
           </button>
         }
       />
@@ -91,20 +91,20 @@ export default function ProjectsPage() {
           <table className="w-full text-sm text-left text-slate-600">
             <thead className="bg-slate-50 border-b border-slate-200 text-xs uppercase font-semibold text-slate-700">
               <tr>
-                <th className="px-6 py-4">Project Name</th>
-                <th className="px-6 py-4">Description</th>
-                <th className="px-6 py-4">Created Date</th>
-                <th className="px-6 py-4 text-right">Actions</th>
+                <th className="px-6 py-4">Tên dự án</th>
+                <th className="px-6 py-4">Mô tả</th>
+                <th className="px-6 py-4">Ngày tạo</th>
+                <th className="px-6 py-4 text-right">Thao tác</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={4} className="px-6 py-8 text-center text-slate-500">Loading projects...</td>
+                  <td colSpan={4} className="px-6 py-8 text-center text-slate-500">Đang tải danh sách dự án...</td>
                 </tr>
               ) : projects.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="px-6 py-8 text-center text-slate-500">No projects found. Create one to get started.</td>
+                  <td colSpan={4} className="px-6 py-8 text-center text-slate-500">Không tìm thấy dự án nào. Hãy tạo mới để bắt đầu.</td>
                 </tr>
               ) : (
                 projects.map((project) => (
@@ -145,8 +145,8 @@ export default function ProjectsPage() {
     </MainLayout>
       <ConfirmModal
         isOpen={!!projectToDelete}
-        title="Delete Project"
-        description="Are you sure you want to delete this project? This action cannot be undone."
+        title="Xóa dự án"
+        description="Bạn có chắc chắn muốn xóa dự án này? Hành động này không thể hoàn tác."
         onConfirm={handleDelete}
         onCancel={() => setProjectToDelete(null)}
       />

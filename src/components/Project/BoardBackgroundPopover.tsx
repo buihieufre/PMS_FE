@@ -69,9 +69,9 @@ export default function BoardBackgroundPopover({
         const newBg = res.data.project.background;
         onBackgroundChange(newBg);
         emit('project:changeBackground', { projectId, background: newBg });
-        toast.success('Board background updated!');
+        toast.success('Đã cập nhật hình nền bảng!');
       } catch (err) {
-        toast.error('Failed to update background');
+        toast.error('Cập nhật hình nền thất bại');
       } finally {
         setIsLoading(false);
       }
@@ -101,7 +101,7 @@ export default function BoardBackgroundPopover({
     const file = e.target.files?.[0];
     if (!file) return;
     if (file.size > 10 * 1024 * 1024) {
-      toast.error('File size must be under 10MB');
+      toast.error('Dung lượng tệp phải nhỏ hơn 10MB');
       return;
     }
     applyBackground(null, file);
@@ -113,10 +113,10 @@ export default function BoardBackgroundPopover({
   };
 
   const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
-    { id: 'gradient', label: 'Gradient', icon: <Palette className="h-3.5 w-3.5" /> },
-    { id: 'color', label: 'Color', icon: <div className="h-3.5 w-3.5 rounded-full border border-current" /> },
-    { id: 'link', label: 'Image URL', icon: <Link className="h-3.5 w-3.5" /> },
-    { id: 'upload', label: 'Upload', icon: <Upload className="h-3.5 w-3.5" /> },
+    { id: 'gradient', label: 'Dải màu', icon: <Palette className="h-3.5 w-3.5" /> },
+    { id: 'color', label: 'Màu đơn', icon: <div className="h-3.5 w-3.5 rounded-full border border-current" /> },
+    { id: 'link', label: 'URL Hình ảnh', icon: <Link className="h-3.5 w-3.5" /> },
+    { id: 'upload', label: 'Tải lên', icon: <Upload className="h-3.5 w-3.5" /> },
   ];
 
   return (
@@ -128,7 +128,7 @@ export default function BoardBackgroundPopover({
       <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-slate-50">
         <div className="flex items-center gap-2">
           <Image className="h-4 w-4 text-slate-500" />
-          <span className="text-sm font-bold text-slate-700">Board Background</span>
+          <span className="text-sm font-bold text-slate-700">Hình nền bảng</span>
         </div>
         <button onClick={onClose} className="p-1 rounded-lg hover:bg-slate-200 text-slate-400 transition-colors">
           <X className="h-3.5 w-3.5" />
@@ -163,7 +163,7 @@ export default function BoardBackgroundPopover({
 
         {activeTab === 'gradient' && (
           <div>
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">Choose a Gradient</p>
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">Chọn một dải màu</p>
             <div className="grid grid-cols-4 gap-2">
               {PRESET_GRADIENTS.map((g) => (
                 <button
@@ -186,7 +186,7 @@ export default function BoardBackgroundPopover({
 
         {activeTab === 'color' && (
           <div>
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">Solid Color</p>
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">Màu đơn sắc</p>
             <div className="grid grid-cols-6 gap-2 mb-3">
               {PRESET_COLORS.map((c) => (
                 <button
@@ -209,12 +209,12 @@ export default function BoardBackgroundPopover({
                 className="h-9 w-9 rounded-lg border border-slate-200 cursor-pointer"
                 onChange={(e) => setUrlInput(e.target.value)}
               />
-              <span className="text-xs text-slate-500 flex-1">Pick a custom color</span>
+              <span className="text-xs text-slate-500 flex-1">Chọn màu tùy chỉnh</span>
               <button
                 onClick={() => applyBackground(urlInput || '#1e3a5f')}
                 className="px-3 py-1.5 bg-slate-900 text-white text-xs font-bold rounded-lg hover:bg-slate-800 transition-colors"
               >
-                Apply
+                Áp dụng
               </button>
             </div>
           </div>
@@ -222,7 +222,7 @@ export default function BoardBackgroundPopover({
 
         {activeTab === 'link' && (
           <div>
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">Paste an Image URL</p>
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">Dán URL hình ảnh</p>
             <div className="space-y-3">
               <input
                 type="url"
@@ -243,7 +243,7 @@ export default function BoardBackgroundPopover({
                 disabled={!urlInput.trim()}
                 className="w-full py-2 bg-blue-600 text-white text-sm font-bold rounded-xl hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
-                Apply Image
+                Áp dụng hình ảnh
               </button>
             </div>
           </div>
@@ -251,7 +251,7 @@ export default function BoardBackgroundPopover({
 
         {activeTab === 'upload' && (
           <div>
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">Upload from Device</p>
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">Tải lên từ thiết bị</p>
             <input
               ref={fileRef}
               type="file"
@@ -264,8 +264,8 @@ export default function BoardBackgroundPopover({
               className="w-full h-24 flex flex-col items-center justify-center border-2 border-dashed border-slate-300 rounded-xl hover:border-blue-400 hover:bg-blue-50/50 transition-all text-slate-400 hover:text-blue-600 gap-2"
             >
               <Upload className="h-6 w-6" />
-              <span className="text-xs font-bold">Click to browse</span>
-              <span className="text-[10px]">PNG, JPG, WEBP — max 10MB</span>
+              <span className="text-xs font-bold">Nhấp để duyệt tệp</span>
+              <span className="text-[10px]">PNG, JPG, WEBP — tối đa 10MB</span>
             </button>
           </div>
         )}
@@ -277,7 +277,7 @@ export default function BoardBackgroundPopover({
           onClick={() => applyBackground(null)}
           className="w-full py-2 border border-slate-200 text-slate-500 text-xs font-bold rounded-xl hover:bg-slate-50 transition-colors"
         >
-          Remove Background
+          Xóa hình nền
         </button>
       </div>
     </div>

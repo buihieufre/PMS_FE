@@ -56,7 +56,7 @@ export const TaskAppearancePopover: React.FC<TaskAppearancePopoverProps> = ({
               tab === t ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
             }`}
           >
-             {t === 'gradient' ? 'Gradients' : t === 'color' ? 'Màu sắc' : 'Ảnh/Link'}
+             {t === 'gradient' ? 'Dải màu' : t === 'color' ? 'Màu sắc' : 'Ảnh/Link'}
           </button>
         ))}
       </div>

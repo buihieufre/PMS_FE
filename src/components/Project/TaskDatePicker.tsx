@@ -14,15 +14,15 @@ interface TaskDatePickerProps {
 }
 
 const REMINDER_OPTIONS = [
-  { label: 'None', value: 0 },
-  { label: 'At time of due date', value: 1 },
-  { label: '5 Minutes before', value: 5 },
-  { label: '10 Minutes before', value: 10 },
-  { label: '15 Minutes before', value: 15 },
-  { label: '1 Hour before', value: 60 },
-  { label: '2 Hours before', value: 120 },
-  { label: '1 Day before', value: 1440 },
-  { label: '2 Days before', value: 2880 },
+  { label: 'Không có', value: 0 },
+  { label: 'Tại thời điểm hết hạn', value: 1 },
+  { label: '5 phút trước', value: 5 },
+  { label: '10 phút trước', value: 10 },
+  { label: '15 phút trước', value: 15 },
+  { label: '1 giờ trước', value: 60 },
+  { label: '2 giờ trước', value: 120 },
+  { label: '1 ngày trước', value: 1440 },
+  { label: '2 ngày trước', value: 2880 },
 ];
 
 export default function TaskDatePicker({ isOpen, onClose, initialStartDate, initialDueDate, initialReminderOffset, onSave, onRemove }: TaskDatePickerProps) {
@@ -119,7 +119,7 @@ export default function TaskDatePicker({ isOpen, onClose, initialStartDate, init
           </div>
         </div>
         <div className="grid grid-cols-7 gap-1 text-center mb-2">
-          {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map(day => (
+          {['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'].map(day => (
             <span key={day} className="text-[10px] font-bold text-slate-400 uppercase py-1">{day}</span>
           ))}
           {days.map((day, idx) => {
@@ -156,7 +156,7 @@ export default function TaskDatePicker({ isOpen, onClose, initialStartDate, init
         {/* Start Date */}
         <div className="space-y-3">
           <label className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center">
-            <Calendar className="h-3 w-3 mr-2" /> Start date
+            <Calendar className="h-3 w-3 mr-2" /> Ngày bắt đầu
           </label>
           <div className="flex items-center space-x-3">
             <input 
@@ -244,7 +244,7 @@ export default function TaskDatePicker({ isOpen, onClose, initialStartDate, init
             ))}
           </select>
           <p className="text-[10px] text-slate-400 font-medium leading-relaxed">
-            Reminders will be sent to all members associated with this task.
+            Lời nhắc sẽ được gửi tới tất cả thành viên được giao công việc này.
           </p>
         </div>
       </div>

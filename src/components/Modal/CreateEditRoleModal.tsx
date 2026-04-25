@@ -62,15 +62,15 @@ export default function CreateEditRoleModal({ isOpen, onClose, roleToEdit, permi
       const payload = { name, description, permissions: selectedPermissions };
       if (roleToEdit) {
         await axiosInstance.patch(`/roles/${roleToEdit.id}`, payload);
-        toast.success('Role updated successfully');
+        toast.success('Đã cập nhật vai trò thành công');
       } else {
         await axiosInstance.post(`/roles`, payload);
-        toast.success('Role created successfully');
+        toast.success('Đã tạo vai trò thành công');
       }
       onSuccess();
       onClose();
     } catch (error: any) {
-      toast.error(error.response?.data?.error || 'Failed to save role');
+      toast.error(error.response?.data?.error || 'Không thể lưu vai trò');
     } finally {
       setIsSubmitting(false);
     }
@@ -80,7 +80,7 @@ export default function CreateEditRoleModal({ isOpen, onClose, roleToEdit, permi
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
       <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl overflow-hidden max-h-[90vh] flex flex-col">
         <div className="flex justify-between items-center p-4 border-b border-slate-100 flex-shrink-0">
-          <h2 className="text-lg font-semibold text-slate-800">{roleToEdit ? 'Edit Role' : 'Create New Role'}</h2>
+          <h2 className="text-lg font-semibold text-slate-800">{roleToEdit ? 'Chỉnh sửa vai trò' : 'Tạo vai trò mới'}</h2>
           <button onClick={onClose} className="p-1 hover:bg-slate-100 rounded-md text-slate-400 transition-colors">
             <X className="h-5 w-5" />
           </button>
@@ -90,33 +90,33 @@ export default function CreateEditRoleModal({ isOpen, onClose, roleToEdit, permi
           <div className="grid grid-cols-1 mb-6 gap-4">
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">
-                Role Name <span className="text-red-500">*</span>
+                Tên vai trò <span className="text-red-500">*</span>
               </label>
               <input
                 type="text"
                 required
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="e.g. Content Manager"
+                placeholder="v.d. Quản lý nội dung"
                 className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-slate-900"
               />
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">
-                Description
+                Mô tả
               </label>
               <input
                 type="text"
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
-                placeholder="Brief description of this role"
+                placeholder="Mô tả ngắn gọn về vai trò này"
                 className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-slate-900"
               />
             </div>
           </div>
 
           <div className="mb-4 space-y-6">
-            <h3 className="font-semibold text-slate-800 border-b border-slate-100 pb-2">Permissions Configuration</h3>
+            <h3 className="font-semibold text-slate-800 border-b border-slate-100 pb-2">Cấu hình quyền hạn</h3>
             {Object.entries(permissionsGrouped).map(([group, perms]) => {
               const groupActions = perms.map((p) => p.action);
               const isAllChecked = groupActions.every((a) => selectedPermissions.includes(a));
@@ -133,7 +133,7 @@ export default function CreateEditRoleModal({ isOpen, onClose, roleToEdit, permi
                         onChange={() => handleToggleGroup(perms)}
                         className="mr-2 h-4 w-4 text-slate-900 focus:ring-slate-900 border-gray-300 rounded"
                       />
-                      {group} Module
+                      Mô-đun {group}
                     </label>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pl-6">
@@ -164,7 +164,7 @@ export default function CreateEditRoleModal({ isOpen, onClose, roleToEdit, permi
             onClick={onClose}
             className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-md hover:bg-slate-50 transition-colors"
           >
-            Cancel
+            Hủy
           </button>
           <button
             type="submit"
@@ -173,7 +173,7 @@ export default function CreateEditRoleModal({ isOpen, onClose, roleToEdit, permi
             className="px-4 py-2 text-sm font-medium text-white bg-slate-900 border border-transparent rounded-md hover:bg-slate-800 transition-colors flex items-center disabled:opacity-70"
           >
             {isSubmitting && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-            {roleToEdit ? 'Save Changes' : 'Create Role'}
+            {roleToEdit ? 'Lưu thay đổi' : 'Tạo vai trò'}
           </button>
         </div>
       </div>

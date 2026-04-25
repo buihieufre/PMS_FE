@@ -34,7 +34,7 @@ export default function DepartmentsPage() {
       const res = await axiosInstance.get('/departments');
       setDepartments(res.data);
     } catch (err) {
-      toast.error('Failed to load departments');
+      toast.error('Không thể tải dữ liệu phòng ban');
     } finally {
       setLoading(false);
     }
@@ -58,22 +58,22 @@ export default function DepartmentsPage() {
       </Head>
       <div className="mb-8 flex flex-col md:flex-row md:items-center md:justify-between py-2 gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-slate-900 tracking-tight">Departments</h1>
-          <p className="text-slate-500 text-sm mt-1">Manage company organizational structure</p>
+          <h1 className="text-3xl font-bold text-slate-900 tracking-tight">Phòng ban</h1>
+          <p className="text-slate-500 text-sm mt-1">Quản lý cơ cấu tổ chức công ty</p>
         </div>
         <button 
           onClick={() => setIsModalOpen(true)}
           className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-lg flex items-center font-medium transition-colors shadow-sm"
         >
           <Plus className="mr-2 h-5 w-5" />
-          Create Department
+          Tạo phòng ban
         </button>
       </div>
 
       <div className="mb-6 max-w-md relative">
         <input 
           type="text" 
-          placeholder="Search departments..."
+          placeholder="Tìm kiếm phòng ban..."
           className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
@@ -96,16 +96,16 @@ export default function DepartmentsPage() {
                 </div>
                 
                 <p className="text-slate-600 text-sm mb-6 flex-1 line-clamp-3">
-                  {dept.description || 'No function described yet.'}
+                  {dept.description || 'Chưa có mô tả chức năng.'}
                 </p>
                 
                 <div className="flex items-center justify-between pt-4 border-t border-slate-100 text-sm">
                   <div className="flex items-center text-slate-500">
                     <Users className="h-4 w-4 mr-1.5" />
-                    <span className="font-medium">{dept._count?.users || 0} Members</span>
+                    <span className="font-medium">{dept._count?.users || 0} Thành viên</span>
                   </div>
                   <div className="text-slate-500">
-                    <span className="font-medium mr-1">{dept._count?.tasks || 0}</span>Tasks
+                    <span className="font-medium mr-1">{dept._count?.tasks || 0}</span>Công việc
                   </div>
                 </div>
               </div>
@@ -115,8 +115,8 @@ export default function DepartmentsPage() {
       ) : (
         <div className="bg-white border-2 border-dashed border-slate-200 rounded-xl p-12 text-center">
           <Building2 className="mx-auto h-12 w-12 text-slate-300 mb-4" />
-          <h3 className="text-lg font-medium text-slate-900 mb-1">No departments found</h3>
-          <p className="text-slate-500">Get started by creating your first global department.</p>
+          <h3 className="text-lg font-medium text-slate-900 mb-1">Không tìm thấy phòng ban</h3>
+          <p className="text-slate-500">Bắt đầu bằng cách tạo phòng ban đầu tiên của bạn.</p>
         </div>
       )}
 

@@ -9,12 +9,12 @@ export default function Sidebar() {
   const user = useAuthStore((state) => state.user);
   
   const navItems = [
-    { name: 'Dashboard', href: '/', icon: Home, roles: ['ALL'] },
-    { name: 'Projects', href: '/projects', icon: FolderGit2, roles: ['ALL'] },
-    { name: 'Departments', href: '/departments', icon: Building2, roles: ['ADMIN'] },
-    { name: 'Users', href: '/users', icon: Users, roles: ['ADMIN'] },
-    { name: 'Roles', href: '/roles', icon: Shield, roles: ['ADMIN'] },
-    { name: 'Settings', href: '/settings', icon: Settings, roles: ['ADMIN'] },
+    { name: 'Bảng điều khiển', href: '/', icon: Home, roles: ['ALL'] },
+    { name: 'Dự án', href: '/projects', icon: FolderGit2, roles: ['ALL'] },
+    { name: 'Phòng ban', href: '/departments', icon: Building2, roles: ['ADMIN'] },
+    { name: 'Người dùng', href: '/users', icon: Users, roles: ['ADMIN'] },
+    { name: 'Vai trò', href: '/roles', icon: Shield, roles: ['ADMIN'] },
+    { name: 'Cài đặt', href: '/settings', icon: Settings, roles: ['ADMIN'] },
   ];
 
   const visibleNavItems = navItems.filter(item => 
@@ -24,7 +24,7 @@ export default function Sidebar() {
   return (
     <aside className="w-64 h-screen bg-slate-900 text-slate-300 flex flex-col fixed left-0 top-0">
       <div className="h-16 flex items-center px-6 border-b border-slate-800">
-        <h1 className="text-xl font-bold text-white tracking-tight">PMS Admin</h1>
+        <h1 className="text-xl font-bold text-white tracking-tight">Quản trị PMS</h1>
       </div>
       <nav className="flex-1 py-6 px-3 space-y-1">
         {visibleNavItems.map((item) => {

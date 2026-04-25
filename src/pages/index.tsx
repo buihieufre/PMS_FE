@@ -17,7 +17,7 @@ import {
   Search
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { useSocket } from '@/hooks/useSocket';
+import { useSocket, getSocket } from '@/hooks/useSocket';
 
 export default function Home() {
   const { user } = useAuthStore();
@@ -25,7 +25,7 @@ export default function Home() {
   const [projects, setProjects] = useState<any[]>([]);
   const [dashboardData, setDashboardData] = useState<{ tasks: any[]; stats: any } | null>(null);
   const [loading, setLoading] = useState(true);
-  const { on } = useSocket(undefined, user?.id);
+  useSocket(undefined, user?.id);
 
   const fetchData = async () => {
     try {
@@ -48,31 +48,29 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    // Listen for real-time updates that affect the dashboard
-    on('task:moved', ({ taskId, status, task: updatedTask }: any) => {
+    if (typeof window === 'undefined') return;
+    const s = getSocket();
+    const hMoved = ({ taskId, status, task: updatedTask }: any) => {
       setDashboardData((prev: any) => {
         if (!prev) return prev;
         return {
           ...prev,
-          tasks: prev.tasks.map((t: any) => t.id === taskId ? { ...t, status, ...updatedTask } : t)
+          tasks: prev.tasks.map((t: any) => (t.id === taskId ? { ...t, status, ...updatedTask } : t))
         };
       });
-    });
-
-    on('task:updated', (updatedTask: any) => {
+    };
+    const hUpdated = (updatedTask: any) => {
       setDashboardData((prev: any) => {
         if (!prev) return prev;
         return {
           ...prev,
-          tasks: prev.tasks.map((t: any) => t.id === updatedTask.id ? { ...t, ...updatedTask } : t)
+          tasks: prev.tasks.map((t: any) => (t.id === updatedTask.id ? { ...t, ...updatedTask } : t))
         };
       });
-    });
-
-    on('task:created', (newTask: any) => {
+    };
+    const hCreated = (newTask: any) => {
       setDashboardData((prev: any) => {
         if (!prev) return prev;
-        // Only add if it belongs to me or should be in my active tasks
         if (prev.tasks.find((t: any) => t.id === newTask.id)) return prev;
         return {
           ...prev,
@@ -80,44 +78,57 @@ export default function Home() {
           stats: { ...prev.stats, activeTasks: (prev.stats.activeTasks || 0) + 1 }
         };
       });
-    });
-
-    on('task:deleted', ({ taskId }: any) => {
+    };
+    const hDeleted = ({ taskId }: any) => {
       setDashboardData((prev: any) => {
         if (!prev) return prev;
         const taskToDelete = prev.tasks.find((t: any) => t.id === taskId);
         return {
           ...prev,
           tasks: prev.tasks.filter((t: any) => t.id !== taskId),
-          stats: { 
-            ...prev.stats, 
-            activeTasks: taskToDelete && taskToDelete.status !== 'DONE' ? (prev.stats.activeTasks - 1) : prev.stats.activeTasks 
+          stats: {
+            ...prev.stats,
+            activeTasks:
+              taskToDelete && taskToDelete.status !== 'DONE' ? prev.stats.activeTasks - 1 : prev.stats.activeTasks
           }
         };
       });
-    });
-
-    on('project:created', (newProject: any) => {
-      setProjects(prev => {
-        if (prev.find(p => p.id === newProject.id)) return prev;
+    };
+    const hProjectCreated = (newProject: any) => {
+      setProjects((prev) => {
+        if (prev.find((p) => p.id === newProject.id)) return prev;
         return [newProject, ...prev];
       });
-    });
-
-    on('project:updated', (updatedProject: any) => {
-      setProjects(prev => prev.map(p => p.id === updatedProject.id ? { ...p, ...updatedProject } : p));
-    });
-
-    on('project:deleted', ({ projectId: deletedId }: any) => {
-      setProjects(prev => prev.filter(p => p.id !== deletedId));
-    });
-  }, [on]);
+    };
+    const hProjectUpdated = (updatedProject: any) => {
+      setProjects((prev) => prev.map((p) => (p.id === updatedProject.id ? { ...p, ...updatedProject } : p)));
+    };
+    const hProjectDeleted = ({ projectId: deletedId }: { projectId: string }) => {
+      setProjects((prev) => prev.filter((p) => p.id !== deletedId));
+    };
+    s.on('task:moved', hMoved);
+    s.on('task:updated', hUpdated);
+    s.on('task:created', hCreated);
+    s.on('task:deleted', hDeleted);
+    s.on('project:created', hProjectCreated);
+    s.on('project:updated', hProjectUpdated);
+    s.on('project:deleted', hProjectDeleted);
+    return () => {
+      s.off('task:moved', hMoved);
+      s.off('task:updated', hUpdated);
+      s.off('task:created', hCreated);
+      s.off('task:deleted', hDeleted);
+      s.off('project:created', hProjectCreated);
+      s.off('project:updated', hProjectUpdated);
+      s.off('project:deleted', hProjectDeleted);
+    };
+  }, []);
 
   const stats = [
-    { label: 'Total Projects', value: projects.length, icon: Layers, color: 'text-blue-600', bg: 'bg-blue-50' },
-    { label: 'Active Tasks', value: dashboardData?.stats?.activeTasks || 0, icon: Clock, color: 'text-amber-600', bg: 'bg-amber-50' },
-    { label: 'Completed', value: dashboardData?.stats?.completedTasks || 0, icon: CheckCircle2, color: 'text-emerald-600', bg: 'bg-emerald-50' },
-    { label: 'Team Members', value: dashboardData?.stats?.teamSize || 0, icon: BarChart3, color: 'text-purple-600', bg: 'bg-purple-50' },
+    { label: 'Tổng số dự án', value: projects.length, icon: Layers, color: 'text-blue-600', bg: 'bg-blue-50' },
+    { label: 'Việc đang làm', value: dashboardData?.stats?.activeTasks || 0, icon: Clock, color: 'text-amber-600', bg: 'bg-amber-50' },
+    { label: 'Đã hoàn thành', value: dashboardData?.stats?.completedTasks || 0, icon: CheckCircle2, color: 'text-emerald-600', bg: 'bg-emerald-50' },
+    { label: 'Thành viên nhóm', value: dashboardData?.stats?.teamSize || 0, icon: BarChart3, color: 'text-purple-600', bg: 'bg-purple-50' },
   ];
 
   if (loading) {
@@ -137,14 +148,14 @@ export default function Home() {
       <div className="max-w-7xl mx-auto space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-700">
         
         <PageHeader 
-          title={<>Welcome back, <span className="text-emerald-600">{user?.displayName}</span> 👋</>}
-          description="Here is what is happening with your projects today."
+          title={<>Chào mừng trở lại, <span className="text-emerald-600">{user?.displayName}</span> 👋</>}
+          description="Dưới đây là những gì đang diễn ra với các dự án của bạn hôm nay."
           actions={
             <button 
               onClick={() => router.push('/projects')}
               className="bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-2.5 rounded-xl text-sm font-bold flex items-center transition-all shadow-lg shadow-emerald-200 active:scale-95"
             >
-              <Plus className="h-4 w-4 mr-2" /> New Project
+              <Plus className="h-4 w-4 mr-2" /> Dự án mới
             </button>
           }
         />
@@ -157,7 +168,7 @@ export default function Home() {
                 <div className={`p-3 rounded-xl ${stat.bg} ${stat.color} transition-transform group-hover:scale-110`}>
                   <stat.icon className="h-6 w-6" />
                 </div>
-                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Stats</span>
+                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Thống kê</span>
               </div>
               <div className="space-y-1">
                 <h3 className="text-2xl font-black text-slate-900">{stat.value}</h3>
@@ -174,10 +185,10 @@ export default function Home() {
             <div className="flex items-center justify-between">
               <h2 className="text-xl font-bold text-slate-900 flex items-center">
                 <Layout className="h-5 w-5 mr-3 text-emerald-500" />
-                Your Boards
+                Bảng công việc của bạn
               </h2>
               <button onClick={() => router.push('/projects')} className="text-sm font-bold text-emerald-600 hover:text-emerald-700 flex items-center transition-colors">
-                View all <ChevronRight className="h-4 w-4 ml-1" />
+                Xem tất cả <ChevronRight className="h-4 w-4 ml-1" />
               </button>
             </div>
 

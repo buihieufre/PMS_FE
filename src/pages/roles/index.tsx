@@ -42,7 +42,7 @@ export default function RolesPage() {
       setRoles(roleRes.data);
       setPermissionsGrouped(permRes.data);
     } catch (err: any) {
-      toast.error('Failed to load roles data');
+      toast.error('Không thể tải dữ liệu vai trò');
     } finally {
       setLoading(false);
     }
@@ -56,10 +56,10 @@ export default function RolesPage() {
     if (!roleToDelete) return;
     try {
       await axiosInstance.delete(`/roles/${roleToDelete}`);
-      toast.success('Role deleted successfully');
+      toast.success('Đã xóa vai trò thành công');
       fetchData();
     } catch (err: any) {
-      toast.error(err.response?.data?.error || 'Failed to delete role');
+      toast.error(err.response?.data?.error || 'Xóa vai trò thất bại');
     } finally {
       setRoleToDelete(null);
     }
@@ -84,15 +84,15 @@ export default function RolesPage() {
       </Head>
       <div className="flex justify-between items-center mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Role Management</h1>
-          <p className="text-slate-500 text-sm mt-1">Configure systemic RBAC roles and permissions mapping.</p>
+          <h1 className="text-2xl font-bold text-slate-900">Quản lý vai trò</h1>
+          <p className="text-slate-500 text-sm mt-1">Cấu hình các vai trò RBAC và ánh xạ quyền hạn hệ thống.</p>
         </div>
         <button 
           onClick={openCreateDialog}
           className="flex items-center px-4 py-2 bg-slate-900 text-white rounded-md hover:bg-slate-800 text-sm font-medium transition-colors"
         >
           <Plus className="h-4 w-4 mr-2" />
-          Create Role
+          Tạo vai trò
         </button>
       </div>
 
@@ -101,20 +101,20 @@ export default function RolesPage() {
           <table className="w-full text-sm text-left text-slate-600">
             <thead className="bg-slate-50 border-b border-slate-200 text-xs uppercase font-semibold text-slate-700">
               <tr>
-                <th className="px-6 py-4">Role Name</th>
-                <th className="px-6 py-4">Description</th>
-                <th className="px-6 py-4">Permissions Active</th>
-                <th className="px-6 py-4 text-right">Actions</th>
+                <th className="px-6 py-4">Tên vai trò</th>
+                <th className="px-6 py-4">Mô tả</th>
+                <th className="px-6 py-4">Quyền hạn kích hoạt</th>
+                <th className="px-6 py-4 text-right">Thao tác</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={4} className="px-6 py-8 text-center text-slate-500">Loading roles...</td>
+                  <td colSpan={4} className="px-6 py-8 text-center text-slate-500">Đang tải vai trò...</td>
                 </tr>
               ) : roles.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="px-6 py-8 text-center text-slate-500">No roles found.</td>
+                  <td colSpan={4} className="px-6 py-8 text-center text-slate-500">Không tìm thấy vai trò.</td>
                 </tr>
               ) : (
                 roles.map((r) => (
@@ -126,21 +126,21 @@ export default function RolesPage() {
                     <td className="px-6 py-4 text-slate-500">{r.description || '-'}</td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-800 border border-slate-200">
-                        {r.permissions?.length || 0} permitted actions
+                        {r.permissions?.length || 0} hành động được phép
                       </span>
                     </td>
                     <td className="px-6 py-4 text-right">
                       <div className="flex justify-end space-x-2">
                         <button 
                           onClick={() => openEditDialog(r)}
-                          title="Edit" 
+                          title="Sửa" 
                           className="p-1.5 text-slate-600 bg-slate-100 rounded hover:bg-slate-200 transition-colors"
                         >
                           <Pencil className="h-4 w-4" />
                         </button>
                         <button 
                           onClick={() => setRoleToDelete(r.id)}
-                          title="Delete"
+                          title="Xóa"
                           className="p-1.5 text-red-600 bg-red-50 rounded hover:bg-red-100 transition-colors"
                         >
                           <Trash2 className="h-4 w-4" />
@@ -165,8 +165,8 @@ export default function RolesPage() {
 
       <ConfirmModal
         isOpen={!!roleToDelete}
-        title="Delete Role"
-        description="Are you sure you want to completely remove this role? This might cause unexpected behavior if users are still actively using it. Proceed with caution."
+        title="Xóa vai trò"
+        description="Bạn có chắc chắn muốn xóa hoàn toàn vai trò này không? Điều này có thể gây ra hành vi không mong đợi nếu người dùng vẫn đang sử dụng vai trò này. Hãy thận trọng."
         onConfirm={handleDelete}
         onCancel={() => setRoleToDelete(null)}
       />

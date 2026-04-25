@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef, memo } from 'react';
-import { MoreVertical, Plus, Users, Calendar, MessageSquare, Paperclip, CheckSquare, Clock, AlignLeft } from 'lucide-react';
+import { MoreVertical, Plus, Users, Calendar, MessageSquare, Paperclip, CheckSquare, Clock, AlignLeft, LayoutDashboard, Search } from 'lucide-react';
 import { toast } from 'sonner';
 import { useSocket } from '@/hooks/useSocket';
 import { 
@@ -44,12 +44,12 @@ interface ProjectBoardProps {
 }
 
 const COLUMNS = [
-  { id: 'PENDING', title: 'Pending', color: 'bg-slate-100 text-slate-600' },
-  { id: 'IN_PROGRESS', title: 'In Progress', color: 'bg-blue-50 text-blue-600' },
-  { id: 'WAITING_FOR_DOCUMENT', title: 'Waiting', color: 'bg-amber-50 text-amber-600' },
-  { id: 'DELAYED', title: 'Delayed', color: 'bg-rose-50 text-rose-600' },
-  { id: 'DONE', title: 'Completed', color: 'bg-emerald-50 text-emerald-600' },
-  { id: 'APPROVED', title: 'Approved', color: 'bg-indigo-50 text-indigo-600' },
+  { id: 'PENDING', title: 'Chờ xử lý', color: 'bg-slate-100 text-slate-600' },
+  { id: 'IN_PROGRESS', title: 'Đang thực hiện', color: 'bg-blue-50 text-blue-600' },
+  { id: 'WAITING_FOR_DOCUMENT', title: 'Chờ tài liệu', color: 'bg-amber-50 text-amber-600' },
+  { id: 'DELAYED', title: 'Tạm hoãn', color: 'bg-rose-50 text-rose-600' },
+  { id: 'DONE', title: 'Hoàn thành', color: 'bg-emerald-50 text-emerald-600' },
+  { id: 'APPROVED', title: 'Đã duyệt', color: 'bg-indigo-50 text-indigo-600' },
 ];
 
 const StrictDroppable = ({ children, ...props }: any) => {
@@ -193,7 +193,6 @@ const TaskCard = memo(({ task, index, boardBackground, onTaskClick, handleOpenMe
     </Draggable>
   );
 }, (prev, next) => {
-  // Only re-render if the task data has meaningfully changed
   return prev.task === next.task && 
          prev.index === next.index &&
          prev.boardBackground === next.boardBackground;
@@ -206,11 +205,9 @@ export default function ProjectBoard({ projectId, tasks, boardBackground, onTask
   const [isDraggingCard, setIsDraggingCard] = useState(false);
   const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
   const [menuPosition, setMenuPosition] = useState<{ top: number; left: number } | null>(null);
+  const [searchTerm, setSearchTerm] = useState('');
   
-  // Track the timestamp of the last local user interaction to ignore stale server updates
   const lastLocalUpdateRef = useRef(0);
-  
-  // Track the number of outgoing reorder requests to avoid middle-state flickering
   const pendingActionsRef = useRef(0);
 
   const handleOpenMenu = (e: React.MouseEvent, taskId: string) => {
@@ -218,7 +215,7 @@ export default function ProjectBoard({ projectId, tasks, boardBackground, onTask
     const rect = e.currentTarget.getBoundingClientRect();
     setMenuPosition({
       top: rect.bottom + window.scrollY,
-      left: rect.right + window.scrollX - 256 // Adjust based on popover width (w-64 = 256px)
+      left: rect.right + window.scrollX - 256
     });
     setActiveMenuId(taskId);
   };
@@ -228,219 +225,189 @@ export default function ProjectBoard({ projectId, tasks, boardBackground, onTask
     setMenuPosition(null);
   };
 
-  // Drag-to-scroll horizontal board
   const scrollRef = useRef<HTMLDivElement>(null);
   const [isMouseDown, setIsMouseDown] = useState(false);
   const [startX, setStartX] = useState(0);
   const [scrollLeft, setScrollLeft] = useState(0);
 
   const handleUpdateAppearance = (taskId: string, data: { background?: string; textColor?: string }) => {
-    // Rely on parent for centralized optimistic + socket update to prevent flicker
     if (onUpdateTaskAppearance) {
       onUpdateTaskAppearance(taskId, data);
     }
-    
     closeMenu();
   };
 
   const handleMouseDown = (e: React.MouseEvent) => {
     if (!scrollRef.current) return;
-    
-    // Don't trigger if clicking on something interactive or a card
     const target = e.target as HTMLElement;
     if (
       ['BUTTON', 'INPUT', 'TEXTAREA', 'A'].includes(target.tagName) || 
       target.closest('button') || 
       target.closest('[data-rbd-draggable-id]') ||
-      target.closest('.group') // Cards have the 'group' class
+      target.closest('.group')
     ) return;
     
     setIsMouseDown(true);
-    // Add 'active' class to cursor while dragging
     scrollRef.current.classList.add('cursor-grabbing');
     scrollRef.current.classList.remove('cursor-grab');
-    
     setStartX(e.pageX - scrollRef.current.offsetLeft);
     setScrollLeft(scrollRef.current.scrollLeft);
   };
 
-  const handleMouseLeave = () => {
-    setIsMouseDown(false);
-  };
-
-  const handleMouseUp = () => {
-    setIsMouseDown(false);
-  };
-
+  const handleMouseLeave = () => setIsMouseDown(false);
+  const handleMouseUp = () => setIsMouseDown(false);
   const handleMouseMove = (e: React.MouseEvent) => {
     if (!isMouseDown || !scrollRef.current) return;
-    
-    // Use requestAnimationFrame for smoother scrolling
     const x = e.pageX - scrollRef.current.offsetLeft;
     const walk = (x - startX) * 2;
     scrollRef.current.scrollLeft = scrollLeft - walk;
   };
 
-  // Synchronize local tasks with props when they change externally, 
-  // but protect local changes ONLY while there are pending server reorder requests.
   useEffect(() => {
-    // 1. Never sync if we have pending local reorder actions (requests in flight)
-    // to prevent the card from jumping back during rapid movements.
     if (pendingActionsRef.current > 0) return;
-    
-    // 2. Otherwise, synchronize immediately to allow Labels, Assignees, etc.
-    // to update in real-time without any lag or cooldown.
     setLocalTasks(tasks);
   }, [tasks]);
 
-  const onDragStart = () => {
-    setIsDraggingCard(true);
-  };
+  const onDragStart = () => setIsDraggingCard(true);
 
   const onDragEnd = (result: DropResult) => {
     setIsDraggingCard(false);
     const { destination, source, draggableId } = result;
-
     if (!destination) return;
-
-    if (
-      destination.droppableId === source.droppableId &&
-      destination.index === source.index
-    ) {
-      return;
-    }
+    if (destination.droppableId === source.droppableId && destination.index === source.index) return;
 
     const destStatus = destination.droppableId;
-    
-    // 1. Calculate new order and update LOCAL state immediately (Instant Feedback)
     const movingTask = localTasks.find(t => t.id === draggableId);
     if (!movingTask) return;
 
-    // Record interaction timestamp to freeze server-sync temporarily
     lastLocalUpdateRef.current = Date.now();
-
     const filtered = localTasks.filter(t => t.id !== draggableId);
     const destInFiltered = filtered.filter(t => t.status === destStatus);
     destInFiltered.splice(destination.index, 0, { ...movingTask, status: destStatus });
     
-    // Update local state first for 0ms lag
     setLocalTasks(prev => {
       const otherStatusTasks = prev.filter(t => t.id !== draggableId && t.status !== destStatus);
       return [...otherStatusTasks, ...destInFiltered];
     });
 
     const ids = destInFiltered.map(t => t.id);
+    if (onOptimisticReorder) onOptimisticReorder(ids, destStatus);
 
-    // 2. Call parent optimistic update (for other client synchronization)
-    if (onOptimisticReorder) {
-      onOptimisticReorder(ids, destStatus);
-    }
-
-    // 3. Socket broadcast with tracking
     pendingActionsRef.current += 1;
     emit('task:reorder', { projectId, taskIds: ids, status: destStatus }, (response: any) => {
       pendingActionsRef.current = Math.max(0, pendingActionsRef.current - 1);
-      
       if (response.status === 'error') {
         toast.error(response.message || 'Failed to move task');
-        onTaskUpdate(); // Rollback on failure
+        onTaskUpdate();
       }
     });
   };
 
+  const filteredTasks = localTasks.filter(t => t.title.toLowerCase().includes(searchTerm.toLowerCase()));
+
   return (
     <DragDropContext onDragStart={onDragStart} onDragEnd={onDragEnd}>
       <div className="h-full w-full overflow-hidden flex flex-col bg-transparent">
+        <div className="px-6 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <LayoutDashboard className="h-6 w-6 text-emerald-600" />
+            <h1 className="text-xl font-black text-slate-800 tracking-tight">Bảng công việc</h1>
+          </div>
+          <div className="relative group">
+            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 group-focus-within:text-emerald-500 transition-colors" />
+            <input
+              type="text"
+              placeholder="Tìm kiếm công việc..."
+              className="pl-10 pr-4 py-2.5 bg-white/80 backdrop-blur-sm border border-slate-200 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 w-64 transition-all shadow-sm"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+          </div>
+        </div>
+
         <div 
           ref={scrollRef}
           onMouseDown={handleMouseDown}
           onMouseLeave={handleMouseLeave}
           onMouseUp={handleMouseUp}
           onMouseMove={handleMouseMove}
-          className="flex-1 flex overflow-x-auto overflow-y-hidden gap-6 custom-scrollbar cursor-grab pt-6"
+          className="flex-1 flex overflow-x-auto overflow-y-hidden gap-6 custom-scrollbar cursor-grab pt-2"
         >
-          {/* Left Spacer */}
           <div className="w-10 shrink-0" />
 
-          {COLUMNS.map((col) => (
-            <div 
-              key={col.id} 
-              className="w-80 shrink-0 flex flex-col h-fit max-h-full rounded-2xl border border-white/30 shadow-lg overflow-hidden mb-10"
-              style={{ background: boardBackground ? 'rgba(255,255,255,0.18)' : '#ebecf0', backdropFilter: boardBackground ? 'blur(12px)' : 'none' }}
-            >
-              {/* Column Header */}
-              <div className="p-4 flex items-center justify-between bg-white/40 border-b border-slate-200 backdrop-blur-sm">
-                <div className="flex items-center space-x-2">
-                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${col.color}`}>
-                    {localTasks.filter(t => t.status === col.id).length}
-                  </span>
-                  <h3 className={`text-sm font-bold transition-colors ${boardBackground ? 'text-white' : 'text-slate-700'}`}>
-                    {col.title}
-                  </h3>
-                </div>
-              </div>
-
-              {/* Cards Area - The only vertical scroll parent */}
-              <StrictDroppable droppableId={col.id}>
-                {(provided: DroppableProvided, snapshot: DroppableStateSnapshot) => (
-                  <div 
-                    {...provided.droppableProps}
-                    ref={provided.innerRef}
-                    className={`flex-1 overflow-y-auto overflow-x-hidden p-3 space-y-3 custom-scrollbar transition-colors ${
-                      snapshot.isDraggingOver ? 'bg-emerald-50/30' : ''
-                    }`}
-                  >
-                    {localTasks.filter(t => t.status === col.id).map((task, index) => (
-                      <TaskCard 
-                        key={task.id}
-                        task={task}
-                        index={index}
-                        boardBackground={boardBackground}
-                        onTaskClick={onTaskClick}
-                        handleOpenMenu={handleOpenMenu}
-                      />
-                    ))}
-                    {provided.placeholder}
-                    
-                    {localTasks.filter(t => t.status === col.id).length === 0 && !snapshot.isDraggingOver && (
-                       <div className={`h-24 border-2 border-dashed rounded-xl flex items-center justify-center text-[10px] italic transition-colors ${
-                         boardBackground ? 'border-white/20 text-white/50' : 'border-slate-300/40 text-slate-400'
-                       }`}>
-                          No tasks under {col.title}
-                       </div>
-                    )}
-                  </div>
-                )}
-              </StrictDroppable>
-
-              <button 
-                onClick={() => onAddTask(col.id)}
-                className={`m-3 p-2 flex items-center justify-center gap-2 text-[11px] font-bold rounded-lg transition-all ${
-                  boardBackground 
-                    ? 'text-white/70 hover:text-white hover:bg-white/10' 
-                    : 'text-slate-500 hover:text-emerald-600 hover:bg-emerald-50'
-                }`}
+          {COLUMNS.map((col) => {
+            const columnTasks = filteredTasks.filter(t => t.status === col.id);
+            return (
+              <div 
+                key={col.id} 
+                className="w-80 shrink-0 flex flex-col h-fit max-h-full rounded-2xl border border-white/30 shadow-lg overflow-hidden mb-10"
+                style={{ background: boardBackground ? 'rgba(255,255,255,0.18)' : '#ebecf0', backdropFilter: boardBackground ? 'blur(12px)' : 'none' }}
               >
-                <Plus className="h-3 w-3" />
-                Add Task
-              </button>
-            </div>
-          ))}
+                <div className="p-4 flex items-center justify-between bg-white/40 border-b border-slate-200 backdrop-blur-sm">
+                  <div className="flex items-center space-x-2">
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${col.color}`}>
+                      {columnTasks.length}
+                    </span>
+                    <h3 className={`text-sm font-bold transition-colors ${boardBackground ? 'text-white' : 'text-slate-700'}`}>
+                      {col.title}
+                    </h3>
+                  </div>
+                </div>
+
+                <StrictDroppable droppableId={col.id}>
+                  {(provided: DroppableProvided, snapshot: DroppableStateSnapshot) => (
+                    <div 
+                      {...provided.droppableProps}
+                      ref={provided.innerRef}
+                      className={`flex-1 overflow-y-auto overflow-x-hidden p-3 space-y-3 custom-scrollbar transition-colors ${
+                        snapshot.isDraggingOver ? 'bg-emerald-50/30' : ''
+                      }`}
+                    >
+                      {columnTasks.map((task, index) => (
+                        <TaskCard 
+                          key={task.id}
+                          task={task}
+                          index={index}
+                          boardBackground={boardBackground}
+                          onTaskClick={onTaskClick}
+                          handleOpenMenu={handleOpenMenu}
+                        />
+                      ))}
+                      {provided.placeholder}
+                      
+                      {columnTasks.length === 0 && !snapshot.isDraggingOver && (
+                         <div className={`h-24 border-2 border-dashed rounded-xl flex items-center justify-center text-[10px] italic transition-colors ${
+                           boardBackground ? 'border-white/20 text-white/50' : 'border-slate-300/40 text-slate-400'
+                         }`}>
+                            Không có công việc nào
+                         </div>
+                      )}
+                    </div>
+                  )}
+                </StrictDroppable>
+
+                <button 
+                  onClick={() => onAddTask(col.id)}
+                  className={`m-3 p-2 flex items-center justify-center gap-2 text-[11px] font-bold rounded-lg transition-all ${
+                    boardBackground 
+                      ? 'text-white/70 hover:text-white hover:bg-white/10' 
+                      : 'text-slate-500 hover:text-emerald-600 hover:bg-emerald-50'
+                  }`}
+                >
+                  <Plus className="h-3 w-3" />
+                  Thêm thẻ
+                </button>
+              </div>
+            );
+          })}
           
-          {/* Right Spacer */}
           <div className="w-10 shrink-0" />
         </div>
       </div>
       
-      {/* Portaled Context Menu */}
       {activeMenuId && menuPosition && createPortal(
         <>
-          {/* Backdrop */}
-          <div 
-            className="fixed inset-0 z-[9998]" 
-            onClick={closeMenu} 
-          />
-          {/* Menu */}
+          <div className="fixed inset-0 z-[9998]" onClick={closeMenu} />
           <div 
             className="fixed z-[9999]"
             style={{ 

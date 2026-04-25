@@ -11,8 +11,8 @@ interface ConfirmModalProps {
 
 export default function ConfirmModal({
   isOpen,
-  title = 'Are you sure?',
-  description = 'This action cannot be undone.',
+  title = 'Bạn có chắc chắn?',
+  description = 'Hành động này không thể hoàn tác.',
   onConfirm,
   onCancel,
 }: ConfirmModalProps) {
@@ -56,14 +56,14 @@ export default function ConfirmModal({
                     className="inline-flex justify-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
                     onClick={onCancel}
                   >
-                    Cancel
+                    Hủy
                   </button>
                   <button
                     type="button"
                     className="inline-flex justify-center rounded-md border border-transparent bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700"
                     onClick={onConfirm}
                   >
-                    Confirm
+                    Xác nhận
                   </button>
                 </div>
               </Dialog.Panel>

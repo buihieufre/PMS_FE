@@ -122,7 +122,7 @@ export default function MainLayout({
 
     on('notification:new', handleNewNotification);
     return () => {
-      off('notification:new');
+      off('notification:new', handleNewNotification);
     };
   }, [user, on, off, addNotification]);
 
@@ -132,7 +132,7 @@ export default function MainLayout({
       <div className={`flex-1 flex flex-col min-w-0 ${!hideSidebar ? 'ml-64' : ''}`}>
         {!hideTopbar && <Topbar />}
         <main className={`flex-1 ${noScroll ? 'overflow-hidden' : 'overflow-auto'} ${noPadding ? 'p-0' : 'p-8 pb-20'}`}>
-          <div className={`h-full flex flex-col ${fullWidth ? '' : 'max-w-[1600px] 2xl:max-w-[1800px] mx-auto'}`}>
+          <div className={`min-h-full flex flex-col ${fullWidth ? '' : 'max-w-[1600px] 2xl:max-w-[1800px] mx-auto'}`}>
             {children}
           </div>
         </main>

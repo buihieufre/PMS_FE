@@ -41,11 +41,13 @@ axiosInstance.interceptors.response.use(
   async (error: AxiosError) => {
     const originalRequest = error.config as InternalAxiosRequestConfig & { _retry?: boolean };
 
-    // If error is 401 and we haven't retried yet
-    if (error.response?.status === 401 && !originalRequest._retry) {
+    // If error is 401 and we haven't retried yet, and it's NOT a login request
+    if (error.response?.status === 401 && !originalRequest._retry && !originalRequest.url?.includes('/auth/login')) {
+      console.warn('[AXIOS] 401 Detected, attempting refresh...');
       
       // If we are already refreshing, queue this request
       if (isRefreshing) {
+        console.log('[AXIOS] Already refreshing, queuing request...');
         return new Promise((resolve, reject) => {
           failedQueue.push({ resolve, reject });
         })
@@ -60,6 +62,7 @@ axiosInstance.interceptors.response.use(
       isRefreshing = true;
 
       try {
+        console.log('[AXIOS] Calling refresh-token API...');
         // Attempt to refresh the token
         // Browser will automatically send the HttpOnly refreshToken cookie
         const response = await axios.post(
@@ -69,6 +72,7 @@ axiosInstance.interceptors.response.use(
         );
 
         const { accessToken } = response.data;
+        console.log('[AXIOS] Refresh successful, updating token.');
         
         // Update store with new token
         useAuthStore.getState().updateAccessToken(accessToken);
@@ -81,6 +85,7 @@ axiosInstance.interceptors.response.use(
         return axiosInstance(originalRequest);
 
       } catch (refreshError) {
+        console.error('[AXIOS] Refresh failed, logging out...', refreshError);
         // Refresh failed (likely refresh token expired or invalid)
         processQueue(refreshError, null);
         useAuthStore.getState().logout();
@@ -96,5 +101,6 @@ axiosInstance.interceptors.response.use(
     return Promise.reject(error);
   }
 );
+
 
 export default axiosInstance;

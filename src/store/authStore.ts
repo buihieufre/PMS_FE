@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { resetSocket } from '@/lib/socketManager';
 
 interface User {
   id: string;
@@ -30,7 +31,10 @@ export const useAuthStore = create<AuthState>()(
       setAuth: (accessToken, refreshToken, user) => set({ accessToken, refreshToken, user }),
       setUser: (user) => set({ user }),
       updateAccessToken: (accessToken) => set({ accessToken }),
-      logout: () => set({ accessToken: null, refreshToken: null, user: null }),
+      logout: () => {
+        resetSocket();
+        set({ accessToken: null, refreshToken: null, user: null });
+      },
     }),
     {
       name: 'auth-storage',

@@ -15,18 +15,61 @@ import {
   MoreVertical,
   Search,
   Check,
-  Link
+  Link as LinkIcon,
+  Eye
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { useSocket } from '@/hooks/useSocket';
+import { useSocket, getSocket } from '@/hooks/useSocket';
 import { useAuthStore } from '@/store/authStore';
 import TaskDatePicker from './TaskDatePicker';
 import { Popover, Transition } from '@headlessui/react';
 import { Fragment } from 'react';
+import { createPortal } from 'react-dom';
 import axiosInstance from '@/lib/axios';
 import AssigneePopover from './AssigneePopover';
 import LabelPopover from './LabelPopover';
 import ChecklistPopover from './ChecklistPopover';
+import AttachmentPopover from './AttachmentPopover';
+import { ExternalLink, Download, FileVideo, FileText, FileImage, FileCode, File as FileIcon } from 'lucide-react';
+import ConfirmModal from '@/components/Modal/ConfirmModal';
+
+/** Icon “Thêm cảm xúc” kiểu Facebook: mặt cười viền + vòng tròn nhỏ có dấu + */
+function AddReactionGlyph({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 22 22"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      className={className}
+      aria-hidden
+    >
+      <circle cx="9" cy="9" r="6.5" stroke="currentColor" strokeWidth="1.35" />
+      <circle cx="6.9" cy="7.6" r="0.7" fill="currentColor" />
+      <circle cx="11.1" cy="7.6" r="0.7" fill="currentColor" />
+      <path
+        d="M6.2 10.5c0.6 1.7 2.1 2.8 3.7 2.8s3.1-1 3.8-2.6"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinecap="round"
+      />
+      <circle cx="16.2" cy="15.8" r="4.2" fill="currentColor" />
+      <path
+        d="M16.2 13.6v4.4M14 16.2h4.4"
+        stroke="white"
+        strokeWidth="1.15"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+/** Activity log id from DB is UUID; optimistic comments use `temp-...` and must not hit the API */
+const ACTIVITY_UUID_RE =
+  /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+
+function isPersistedActivityId(id: unknown): id is string {
+  return typeof id === 'string' && ACTIVITY_UUID_RE.test(id);
+}
 
 interface TaskDetailModalProps {
   isOpen: boolean;
@@ -35,11 +78,16 @@ interface TaskDetailModalProps {
   projectId: string;
   onUpdate: () => void;
   onDataChange?: (task: any) => void;
+  /** Thành viên từ trang board — đồng bộ mention/danh sách ngay, không cần chỉ fetch trong modal */
+  projectMembersList?: any[];
 }
 
-export default function TaskDetailModal({ isOpen, onClose, task, projectId, onUpdate, onDataChange }: TaskDetailModalProps) {
+export default function TaskDetailModal({ isOpen, onClose, task, projectId, onUpdate, onDataChange, projectMembersList }: TaskDetailModalProps) {
+  if (!isOpen) return null;
+
   const [newComment, setNewComment] = useState('');
   const [localTask, setLocalTask] = useState<any>(task);
+  const [nowMs, setNowMs] = useState<number>(Date.now());
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [editedTitle, setEditedTitle] = useState(task?.title || '');
   const [isEditingDesc, setIsEditingDesc] = useState(false);
@@ -50,13 +98,106 @@ export default function TaskDetailModal({ isOpen, onClose, task, projectId, onUp
   const [editingContent, setEditingContent] = useState('');
   const [newItemInputs, setNewItemInputs] = useState<Record<string, string>>({});
   const [addingToChecklist, setAddingToChecklist] = useState<string | null>(null);
-  const { on, off, emit, socket } = useSocket(projectId);
+  const [previewAttachment, setPreviewAttachment] = useState<any | null>(null);
+  const [deletingAttachmentIds, setDeletingAttachmentIds] = useState<Set<string>>(new Set());
+  const [checklistToDelete, setChecklistToDelete] = useState<{ id: string; title: string } | null>(null);
+  const [editingChecklistId, setEditingChecklistId] = useState<string | null>(null);
+  const [editingChecklistTitle, setEditingChecklistTitle] = useState('');
+  const [isSubmittingComment, setIsSubmittingComment] = useState(false);
+  const [isMentionOpen, setIsMentionOpen] = useState(false);
+  const [mentionQuery, setMentionQuery] = useState('');
+  const [mentionStart, setMentionStart] = useState<number | null>(null);
+  const [activeMentionIndex, setActiveMentionIndex] = useState(0);
+  const { emit, socket } = useSocket(projectId);
   const { user } = useAuthStore();
   const pendingUpdatesRef = useRef<any>({});
   const updateTimeoutRef = useRef<any>(null);
   const lastUpdateRef = useRef<number>(0);
   const deletingChecklistsRef = useRef<Set<string>>(new Set());
   const checklistToggleTimeouts = useRef<Record<string, NodeJS.Timeout>>({});
+  const commentTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const lastCommentSubmitRef = useRef<{ content: string; at: number } | null>(null);
+  const EMOJI_OPTIONS = ['👍', '❤️', '😂', '👀', '🎉'];
+
+  const toMentionHandle = (member: any) => {
+    const employeeCode = String(member?.user?.employeeCode || '').trim().replace(/^@/, '');
+    if (employeeCode) return employeeCode;
+    const displayName = String(member?.user?.displayName || '');
+    return displayName
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9._-]/g, '');
+  };
+
+  const mentionCandidates = projectMembers
+    .filter((m: any) => m?.user?.id && m.user.id !== user?.id)
+    .map((m: any) => ({
+      member: m,
+      userId: m.user.id,
+      displayName: m.user.displayName || 'Unknown',
+      employeeCode: m.user.employeeCode || '',
+      handle: toMentionHandle(m)
+    }))
+    .filter((x: any) => x.handle);
+
+  const filteredMentionCandidates = mentionCandidates
+    .filter((x: any) => {
+      const query = mentionQuery.toLowerCase();
+      if (!query) return true;
+      return (
+        x.handle.toLowerCase().includes(query) ||
+        x.displayName.toLowerCase().includes(query) ||
+        String(x.employeeCode || '').toLowerCase().replace(/^@/, '').includes(query)
+      );
+    })
+    .slice(0, 8);
+
+  const updateMentionState = (value: string, caretPos: number) => {
+    const beforeCaret = value.slice(0, caretPos);
+    const match = beforeCaret.match(/(^|\s)@([a-zA-Z0-9._-]*)$/);
+    if (!match) {
+      setIsMentionOpen(false);
+      setMentionQuery('');
+      setMentionStart(null);
+      return;
+    }
+
+    const atIndex = beforeCaret.lastIndexOf('@');
+    if (atIndex < 0) {
+      setIsMentionOpen(false);
+      setMentionQuery('');
+      setMentionStart(null);
+      return;
+    }
+
+    setMentionStart(atIndex);
+    setMentionQuery(match[2] || '');
+    setActiveMentionIndex(0);
+    setIsMentionOpen(true);
+  };
+
+  const applyMention = (handle: string) => {
+    const textarea = commentTextareaRef.current;
+    if (!textarea || mentionStart === null) return;
+
+    const caretPos = textarea.selectionStart ?? newComment.length;
+    const before = newComment.slice(0, mentionStart);
+    const after = newComment.slice(caretPos);
+    const inserted = `@${handle} `;
+    const next = `${before}${inserted}${after}`;
+
+    setNewComment(next);
+    setIsMentionOpen(false);
+    setMentionQuery('');
+    setMentionStart(null);
+
+    const nextCaretPos = before.length + inserted.length;
+    requestAnimationFrame(() => {
+      textarea.focus();
+      textarea.setSelectionRange(nextCaretPos, nextCaretPos);
+    });
+  };
   
   // Persistent Intent Buffer: stores the user's intended state for items/labels.
   // Logic: The local state ALWAYS wins for these IDs until the server matches the intent.
@@ -146,13 +287,21 @@ export default function TaskDetailModal({ isOpen, onClose, task, projectId, onUp
   }, [task]);
 
   useEffect(() => {
-    if (!isOpen || !localTask) return;
+    if (!isOpen || !localTask || typeof window === 'undefined') return;
+    const s = getSocket();
+    if (!s) return;
+    const taskId = localTask.id;
+    const subs: { ev: string; fn: (data: any) => void }[] = [];
+    const add = (ev: string, fn: (data: any) => void) => {
+      s.on(ev, fn);
+      subs.push({ ev, fn });
+    };
 
-    // Listen for real-time updates specific to this task
-    on('task:updated', (payload: any) => {
-      const { task: updatedTask, senderId } = payload || {};
-      if (senderId === socket?.id) return;
-      if (!updatedTask?.id || !localTask?.id || updatedTask.id !== localTask.id) return;
+    add('task:updated', (payload: any) => {
+      const updatedTask = payload?.task || payload;
+      const senderId = payload?.senderId;
+      if (senderId === s.id) return;
+      if (!updatedTask?.id || !taskId || updatedTask.id !== taskId) return;
 
       setLocalTask((prev: any) => ({
         ...prev,
@@ -165,52 +314,81 @@ export default function TaskDetailModal({ isOpen, onClose, task, projectId, onUp
       setEditedDesc(updatedTask.description || '');
     });
 
-    on('activity:added', ({ taskId, activity }: any) => {
-      if (taskId === localTask.id) {
+    add('activity:added', ({ taskId: tid, activity }: any) => {
+      if (tid === taskId) {
         setLocalTask((prev: any) => {
-          if (prev.activities?.some((a: any) => a.id === activity.id)) return prev;
+          const currentActivities = prev.activities || [];
+          if (currentActivities.some((a: any) => a.id === activity.id)) return prev;
 
-          // Prevent duplication of optimistic toggle system logs
           if (activity.action === 'TOGGLE_CHECKLIST' && activity.metadata?.itemId) {
             const tempId = `temp-log-toggle-${activity.metadata.itemId}`;
-            if (prev.activities?.some((a: any) => a.id === tempId)) {
-               return {
-                  ...prev,
-                  activities: prev.activities.map((a: any) => a.id === tempId ? activity : a)
-               };
+            if (currentActivities.some((a: any) => a.id === tempId)) {
+              return {
+                ...prev,
+                activities: currentActivities.map((a: any) => (a.id === tempId ? activity : a))
+              };
             }
           }
 
+          const tempCommentIndex = currentActivities.findIndex(
+            (a: any) =>
+              String(a.id || '').startsWith('temp-') &&
+              a.type === 'COMMENT' &&
+              a.user?.id === activity.user?.id &&
+              String(a.content || '').trim() === String(activity.content || '').trim()
+          );
+
+          const nextActivities =
+            tempCommentIndex >= 0
+              ? currentActivities.map((a: any, idx: number) => (idx === tempCommentIndex ? activity : a))
+              : [activity, ...currentActivities];
+
+          const seen = new Set<string>();
+          const dedupedActivities = nextActivities.filter((a: any) => {
+            if (!a?.id) return true;
+            if (seen.has(a.id)) return false;
+            seen.add(a.id);
+            return true;
+          });
+
           return {
             ...prev,
-            activities: [activity, ...(prev.activities || [])]
+            activities: dedupedActivities
           };
         });
       }
     });
 
-    on('activity:edited', ({ activity }: any) => {
+    add('activity:edited', ({ activity }: any) => {
       setLocalTask((prev: any) => ({
         ...prev,
-        activities: prev.activities?.map((a: any) => a.id === activity.id ? activity : a)
+        activities: prev.activities?.map((a: any) => (a.id === activity.id ? activity : a))
       }));
     });
 
-    on('activity:deleted', ({ activityId }: any) => {
+    add('activity:deleted', ({ activityId }: any) => {
       setLocalTask((prev: any) => ({
         ...prev,
         activities: prev.activities?.filter((a: any) => a.id !== activityId)
       }));
     });
 
-    on('activity:reacted', ({ activityId, userId, emoji, action }: any) => {
+    add('activity:reacted', ({ activityId, userId, emoji, action }: any) => {
       setLocalTask((prev: any) => ({
         ...prev,
         activities: prev.activities?.map((a: any) => {
           if (a.id === activityId) {
-            const newReactions = action === 'added' 
-              ? [...(a.reactions || []), { userId, emoji, user: projectMembers.find(m => m.userId === userId)?.user || { displayName: 'Someone' } }]
-              : (a.reactions || []).filter((r: any) => !(r.userId === userId && r.emoji === emoji));
+            const newReactions =
+              action === 'added'
+                ? [
+                    ...(a.reactions || []),
+                    {
+                      userId,
+                      emoji,
+                      user: projectMembers.find((m) => m.userId === userId)?.user || { displayName: 'Someone' }
+                    }
+                  ]
+                : (a.reactions || []).filter((r: any) => !(r.userId === userId && r.emoji === emoji));
             return { ...a, reactions: newReactions };
           }
           return a;
@@ -218,14 +396,14 @@ export default function TaskDetailModal({ isOpen, onClose, task, projectId, onUp
       }));
     });
 
-    // New checklist group events
-    on('checklist:created', ({ taskId, checklist }: any) => {
-      if (taskId !== localTask.id) return;
+    add('checklist:created', ({ taskId: tid, checklist }: any) => {
+      if (tid !== taskId) return;
       setLocalTask((prev: any) => {
         if (prev.checklists?.some((c: any) => c.id === checklist.id)) return prev;
         const checklists = prev.checklists || [];
-        // Replace temp item with same title
-        const tempIndex = checklists.findIndex((c: any) => c.id.startsWith('temp-cl-') && c.title === checklist.title);
+        const tempIndex = checklists.findIndex(
+          (c: any) => c.id.startsWith('temp-cl-') && c.title === checklist.title
+        );
         if (tempIndex !== -1) {
           const newChecklists = [...checklists];
           newChecklists[tempIndex] = checklist;
@@ -235,9 +413,9 @@ export default function TaskDetailModal({ isOpen, onClose, task, projectId, onUp
       });
     });
 
-    on('checklist:deleted', ({ taskId, checklistId, senderId }: any) => {
-      if (senderId === socket?.id) return;
-      if (taskId !== localTask.id) return;
+    add('checklist:deleted', ({ taskId: tid, checklistId, senderId }: any) => {
+      if (senderId === s.id) return;
+      if (tid !== taskId) return;
       if (isLocked('checklists')) return;
 
       setLocalTask((prev: any) => ({
@@ -246,17 +424,17 @@ export default function TaskDetailModal({ isOpen, onClose, task, projectId, onUp
       }));
     });
 
-    on('checklistItem:added', ({ taskId, checklistId, checklistItem }: any) => {
-      if (taskId !== localTask.id) return;
+    add('checklistItem:added', ({ taskId: tid, checklistId, checklistItem }: any) => {
+      if (tid !== taskId) return;
       setLocalTask((prev: any) => ({
         ...prev,
         checklists: prev.checklists?.map((c: any) => {
           if (c.id !== checklistId) return c;
           const items = c.items || [];
-          // If item with same real ID already exists (from ack callback), skip
           if (items.some((i: any) => i.id === checklistItem.id)) return c;
-          // Replace any temp item with the same title (optimistic placeholder)
-          const tempIndex = items.findIndex((i: any) => i.id.startsWith('temp-') && i.title === checklistItem.title);
+          const tempIndex = items.findIndex(
+            (i: any) => i.id.startsWith('temp-') && i.title === checklistItem.title
+          );
           if (tempIndex !== -1) {
             const newItems = [...items];
             newItems[tempIndex] = checklistItem;
@@ -267,15 +445,14 @@ export default function TaskDetailModal({ isOpen, onClose, task, projectId, onUp
       }));
     });
 
-    on('checklistItem:updated', ({ taskId, checklistId, checklistItem, senderId }: any) => {
-      if (senderId === socket?.id) return;
-      if (taskId !== localTask.id) return;
+    add('checklistItem:updated', ({ taskId: tid, checklistId, checklistItem, senderId }: any) => {
+      if (senderId === s.id) return;
+      if (tid !== taskId) return;
 
-      // Update the base item then run reconciliation to see if it matches intent
       setLocalTask((prev: any) => {
         const updatedChecklists = prev.checklists?.map((c: any) =>
           c.id === checklistId
-            ? { ...c, items: c.items?.map((i: any) => i.id === checklistItem.id ? checklistItem : i) }
+            ? { ...c, items: c.items?.map((i: any) => (i.id === checklistItem.id ? checklistItem : i)) }
             : c
         );
         return {
@@ -285,34 +462,47 @@ export default function TaskDetailModal({ isOpen, onClose, task, projectId, onUp
       });
     });
 
-    on('checklistItem:deleted', ({ taskId, checklistId, itemId, senderId }: any) => {
-      if (senderId === socket?.id) return;
-      if (taskId !== localTask.id) return;
+    add('checklistItem:deleted', ({ taskId: tid, checklistId, itemId, senderId }: any) => {
+      if (senderId === s.id) return;
+      if (tid !== taskId) return;
       if (isLocked('checklists')) return;
 
       setLocalTask((prev: any) => ({
         ...prev,
         checklists: prev.checklists?.map((c: any) =>
-          c.id === checklistId
-            ? { ...c, items: c.items?.filter((i: any) => i.id !== itemId) }
-            : c
+          c.id === checklistId ? { ...c, items: c.items?.filter((i: any) => i.id !== itemId) } : c
         )
       }));
     });
 
+    add('attachment:added', ({ taskId: tid, attachment }: any) => {
+      if (tid === taskId) {
+        setLocalTask((prev: any) => ({
+          ...prev,
+          attachments: [attachment, ...(prev.attachments || [])]
+        }));
+      }
+    });
+
+    add('attachment:deleted', ({ taskId: tid, attachmentId }: any) => {
+      if (tid === taskId) {
+        setLocalTask((prev: any) => ({
+          ...prev,
+          attachments: prev.attachments?.filter((a: any) => a.id !== attachmentId)
+        }));
+      }
+    });
+
     return () => {
-      off('task:updated');
-      off('activity:added');
-      off('activity:edited');
-      off('activity:deleted');
-      off('checklist:created');
-      off('checklist:deleted');
-      off('checklistItem:added');
-      off('checklistItem:updated');
-      off('checklistItem:deleted');
-      off('task:deleted');
+      subs.forEach(({ ev, fn }) => s.off(ev, fn));
     };
-  }, [isOpen, localTask?.id, on, off]);
+  }, [isOpen, localTask?.id, projectMembers]);
+
+  useEffect(() => {
+    if (projectMembersList && projectMembersList.length > 0) {
+      setProjectMembers(projectMembersList);
+    }
+  }, [projectMembersList]);
 
   useEffect(() => {
     if (isOpen && projectId) {
@@ -328,11 +518,35 @@ export default function TaskDetailModal({ isOpen, onClose, task, projectId, onUp
     }
   }, [isOpen, projectId]);
 
+  useEffect(() => {
+    if (!isOpen) return;
+    const timer = setInterval(() => setNowMs(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [isOpen]);
+
   if (!isOpen || !localTask) return null;
+
+  const emitTaskUpdate = (updates: any) => {
+    emit('task:update', { taskId: localTask.id, projectId, userId: user?.id, updates }, (response: any) => {
+      setIsUpdating(false);
+      if (response.status === 'error') {
+        toast.error(response.message || 'Lỗi cập nhật công việc');
+        onUpdate();
+      } else {
+         // Final Sync
+         setLocalTask((prev: any) => ({
+           ...prev,
+           ...response.task,
+           checklists: reconcileChecklists(response.task.checklists),
+           labels: reconcileLabels(response.task.labels)
+         }));
+      }
+    });
+  };
 
   const handleUpdateTask = async (updates: any) => {
     // Record label intent if updating labels
-    if (updates.labels) {
+    if (updates.labels !== undefined) {
       setIntent(`labels-${localTask.id}`, updates.labels);
     }
 
@@ -341,31 +555,27 @@ export default function TaskDetailModal({ isOpen, onClose, task, projectId, onUp
     setLocalTask(optimisticTask);
     if (onDataChange) onDataChange(optimisticTask);
 
-    // Queue updates for debounce
-    pendingUpdatesRef.current = { ...pendingUpdatesRef.current, ...updates };
     setIsUpdating(true);
 
+    // Labels should update immediately (no debounce) to avoid UI flicker/jump.
+    const isLabelUpdate = updates.labelIds !== undefined || updates.labels !== undefined;
+    if (isLabelUpdate) {
+      if (updateTimeoutRef.current) {
+        clearTimeout(updateTimeoutRef.current);
+        updateTimeoutRef.current = null;
+      }
+      pendingUpdatesRef.current = {};
+      emitTaskUpdate(updates);
+      return;
+    }
+
+    // Queue non-label updates for debounce
+    pendingUpdatesRef.current = { ...pendingUpdatesRef.current, ...updates };
     if (updateTimeoutRef.current) clearTimeout(updateTimeoutRef.current);
-    
     updateTimeoutRef.current = setTimeout(() => {
       const mergedUpdates = pendingUpdatesRef.current;
-      pendingUpdatesRef.current = {}; 
-      
-      emit('task:update', { taskId: localTask.id, projectId, userId: user?.id, updates: mergedUpdates }, (response: any) => {
-        setIsUpdating(false);
-        if (response.status === 'error') {
-          toast.error(response.message || 'Lỗi cập nhật công việc');
-          onUpdate(); 
-        } else {
-           // Final Sync
-           setLocalTask((prev: any) => ({
-             ...prev,
-             ...response.task,
-             checklists: reconcileChecklists(response.task.checklists),
-             labels: reconcileLabels(response.task.labels)
-           }));
-        }
-      });
+      pendingUpdatesRef.current = {};
+      emitTaskUpdate(mergedUpdates);
     }, 400);
   };
 
@@ -436,7 +646,57 @@ export default function TaskDetailModal({ isOpen, onClose, task, projectId, onUp
     });
   };
 
+  const requestDeleteChecklist = (checklistId: string, title: string) => {
+    setChecklistToDelete({ id: checklistId, title });
+  };
+
+  const confirmDeleteChecklist = () => {
+    if (!checklistToDelete) return;
+    handleDeleteChecklist(checklistToDelete.id, checklistToDelete.title);
+    setChecklistToDelete(null);
+  };
+
+  const startEditChecklistTitle = (checklistId: string, currentTitle: string) => {
+    setEditingChecklistId(checklistId);
+    setEditingChecklistTitle(currentTitle || '');
+  };
+
+  const cancelEditChecklistTitle = () => {
+    setEditingChecklistId(null);
+    setEditingChecklistTitle('');
+  };
+
+  const saveChecklistTitle = async (checklistId: string) => {
+    const trimmed = editingChecklistTitle.trim();
+    if (!trimmed) {
+      toast.error('Tên checklist không được để trống');
+      return;
+    }
+
+    setLocalTask((prev: any) => {
+      const updated = {
+        ...prev,
+        checklists: prev.checklists?.map((c: any) => (c.id === checklistId ? { ...c, title: trimmed } : c))
+      };
+      if (onDataChange) onDataChange(updated);
+      return updated;
+    });
+
+    cancelEditChecklistTitle();
+
+    try {
+      await axiosInstance.patch(`/projects/${projectId}/tasks/${localTask.id}/checklists/${checklistId}`, { title: trimmed });
+    } catch (error: any) {
+      toast.error(error?.response?.data?.message || 'Không thể đổi tên checklist');
+      onUpdate();
+    }
+  };
+
   const handleAddCheckItem = (checklistId: string) => {
+    if (checklistId.startsWith('temp-')) {
+      toast.info('Danh sách đang được lưu, vui lòng đợi giây lát...');
+      return;
+    }
     const title = newItemInputs[checklistId]?.trim();
     if (!title) return;
 
@@ -550,14 +810,23 @@ export default function TaskDetailModal({ isOpen, onClose, task, projectId, onUp
   };
 
   const handleAddComment = async () => {
-    if (!newComment.trim()) return;
+    const trimmedComment = newComment.trim();
+    if (!trimmedComment || isSubmittingComment) return;
+
+    const now = Date.now();
+    const lastSubmit = lastCommentSubmitRef.current;
+    if (lastSubmit && lastSubmit.content === trimmedComment && now - lastSubmit.at < 1200) {
+      return;
+    }
+    lastCommentSubmitRef.current = { content: trimmedComment, at: now };
+    setIsSubmittingComment(true);
 
     const tempId = `temp-${Date.now()}`;
     const newActivity = {
       id: tempId,
       type: 'COMMENT',
       action: 'CREATE',
-      content: newComment,
+      content: trimmedComment,
       user: user,
       createdAt: new Date().toISOString()
     };
@@ -575,12 +844,26 @@ export default function TaskDetailModal({ isOpen, onClose, task, projectId, onUp
     lastUpdateRef.current = Date.now();
 
     emit('activity:add', { taskId: localTask.id, projectId, userId: user?.id, content: newActivity.content }, (response: any) => {
+      setIsSubmittingComment(false);
       if (response.status === 'success') {
-        // Replace temp with real
+        // Replace temp with real and dedupe (socket event may arrive before callback).
         setLocalTask((prev: any) => {
+          const baseActivities = prev.activities || [];
+          const replaced = baseActivities.map((a: any) => a.id === tempId ? response.activity : a);
+          const alreadyHasReal = replaced.some((a: any) => a.id === response.activity.id);
+          const nextList = alreadyHasReal ? replaced : [response.activity, ...replaced];
+
+          const seen = new Set<string>();
+          const deduped = nextList.filter((a: any) => {
+            if (!a?.id) return true;
+            if (seen.has(a.id)) return false;
+            seen.add(a.id);
+            return true;
+          });
+
           const updatedTask = {
             ...prev,
-            activities: prev.activities?.map((a: any) => a.id === tempId ? response.activity : a) || []
+            activities: deduped
           };
           if (onDataChange) onDataChange(updatedTask);
           return updatedTask;
@@ -599,6 +882,17 @@ export default function TaskDetailModal({ isOpen, onClose, task, projectId, onUp
       }
     });
   };
+
+  useEffect(() => {
+    if (!isMentionOpen) return;
+    if (filteredMentionCandidates.length === 0) {
+      setActiveMentionIndex(0);
+      return;
+    }
+    if (activeMentionIndex > filteredMentionCandidates.length - 1) {
+      setActiveMentionIndex(0);
+    }
+  }, [isMentionOpen, filteredMentionCandidates.length, activeMentionIndex]);
 
   const handleEditActivity = async (activityId: string) => {
     if (!editingContent.trim()) { setEditingActivityId(null); return; }
@@ -670,6 +964,48 @@ export default function TaskDetailModal({ isOpen, onClose, task, projectId, onUp
     });
   };
 
+  const handleDeleteAttachment = async (attachmentId: string) => {
+    if (deletingAttachmentIds.has(attachmentId)) return;
+    if (!confirm('Bạn có chắc chắn muốn gỡ bỏ tệp đính kèm này?')) return;
+
+    const previousAttachments = localTask.attachments || [];
+    const nextAttachments = previousAttachments.filter((a: any) => a.id !== attachmentId);
+    setDeletingAttachmentIds((prev) => new Set(prev).add(attachmentId));
+
+    // Optimistic remove: update UI immediately for faster feedback.
+    setLocalTask((prev: any) => {
+      const updatedTask = {
+        ...prev,
+        attachments: (prev.attachments || []).filter((a: any) => a.id !== attachmentId)
+      };
+      if (onDataChange) onDataChange(updatedTask);
+      return updatedTask;
+    });
+
+    if (previewAttachment?.id === attachmentId) {
+      setPreviewAttachment(null);
+    }
+
+    try {
+      await axiosInstance.delete(`/projects/${projectId}/tasks/${localTask.id}/attachments/${attachmentId}`);
+      toast.success('Đã gỡ bỏ tệp đính kèm');
+    } catch (error: any) {
+      // Rollback if API fails
+      setLocalTask((prev: any) => {
+        const updatedTask = { ...prev, attachments: previousAttachments };
+        if (onDataChange) onDataChange(updatedTask);
+        return updatedTask;
+      });
+      toast.error(error?.response?.data?.message || 'Lỗi khi xóa tệp đính kèm');
+    } finally {
+      setDeletingAttachmentIds((prev) => {
+        const next = new Set(prev);
+        next.delete(attachmentId);
+        return next;
+      });
+    }
+  };
+
   const calculateProgress = (checklist: any) => {
     const items = checklist.items || [];
     if (!items.length) return 0;
@@ -677,11 +1013,123 @@ export default function TaskDetailModal({ isOpen, onClose, task, projectId, onUp
     return Math.round((completed / items.length) * 100);
   };
 
+  const formatAttachmentSize = (bytes: number) => {
+    if (!bytes) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
+  };
+
+  const handleCommentAttachment = () => {
+    toast.info('Tính năng nhận xét tệp sẽ được bổ sung sớm');
+  };
+
+  const getAttachmentExtension = (attachment: any) => {
+    const name = attachment?.fileName || '';
+    const ext = name.split('.').pop();
+    return ext ? ext.toLowerCase() : '';
+  };
+
+  const getAttachmentTypeBadge = (attachment: any) => {
+    const ext = getAttachmentExtension(attachment);
+    if (!ext) return 'FILE';
+
+    if (['doc', 'docx'].includes(ext)) return 'WORD';
+    if (['xls', 'xlsx'].includes(ext)) return 'EXCEL';
+    if (['ppt', 'pptx'].includes(ext)) return 'PPT';
+    if (ext === 'pdf') return 'PDF';
+    if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].includes(ext)) return ext.toUpperCase();
+    if (['mp4', 'mov', 'avi', 'webm', 'mkv'].includes(ext)) return ext.toUpperCase();
+    if (['txt', 'md', 'csv', 'json', 'xml'].includes(ext)) return ext.toUpperCase();
+    if (ext.length > 5) return `${ext.slice(0, 5).toUpperCase()}+`;
+    return ext.toUpperCase();
+  };
+
+  const getAttachmentPreviewType = (attachment: any) => {
+    const mime = attachment?.mimetype || '';
+    const ext = getAttachmentExtension(attachment);
+
+    if (!attachment?.fileSize) return 'link';
+    if (mime.includes('image')) return 'image';
+    if (mime.includes('video')) return 'video';
+    if (mime.includes('pdf') || ext === 'pdf') return 'pdf';
+    if (['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx'].includes(ext)) return 'office';
+    if (['txt', 'md', 'csv', 'json', 'xml'].includes(ext)) return 'text';
+    return 'unknown';
+  };
+
+  const getEmbedPreviewUrl = (attachment: any) => {
+    const previewType = getAttachmentPreviewType(attachment);
+    const fileUrl = attachment?.fileUrl || '';
+    if (!fileUrl) return '';
+
+    if (previewType === 'office') {
+      return `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(fileUrl)}`;
+    }
+
+    if (previewType === 'link') {
+      return fileUrl;
+    }
+
+    return fileUrl;
+  };
+
+  const isPreviewableAttachment = (attachment: any) => {
+    const previewType = getAttachmentPreviewType(attachment);
+    return previewType !== 'unknown';
+  };
+
+  const handlePreviewAttachment = (attachment: any) => {
+    if (!attachment?.fileUrl) {
+      toast.error('Không tìm thấy đường dẫn tệp để xem trước');
+      return;
+    }
+
+    if (!isPreviewableAttachment(attachment)) {
+      window.open(attachment.fileUrl, '_blank', 'noopener,noreferrer');
+      return;
+    }
+
+    setPreviewAttachment(attachment);
+  };
+
+  useEffect(() => {
+    if (!previewAttachment) return;
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [previewAttachment]);
+
+  const handleReactionClick = (activity: any, emoji: string) => {
+    if (!isPersistedActivityId(activity?.id)) {
+      toast.message('Chờ bình luận được lưu xong rồi mới thả cảm xúc.');
+      return;
+    }
+    const currentUserReactions = (activity.reactions || []).filter((r: any) => r.userId === user?.id);
+    const hasSame = currentUserReactions.some((r: any) => r.emoji === emoji);
+
+    // Click same emoji again => remove.
+    if (hasSame) {
+      emit('activity:react', { activityId: activity.id, projectId, userId: user?.id, emoji });
+      return;
+    }
+
+    // Enforce one reaction per user per activity on UI:
+    // remove current reaction(s) first, then add the chosen emoji.
+    currentUserReactions.forEach((r: any) => {
+      emit('activity:react', { activityId: activity.id, projectId, userId: user?.id, emoji: r.emoji });
+    });
+    emit('activity:react', { activityId: activity.id, projectId, userId: user?.id, emoji });
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-in fade-in duration-300 overflow-y-auto items-start pt-[56px]">
-      <Popover as={Fragment}>
-        {({ open }) => (
-          <div className="bg-[#f1f2f4] w-full max-w-6xl rounded-[32px] shadow-[0_30px_70px_rgba(0,0,0,0.5)] flex flex-col animate-in zoom-in-95 duration-300 text-[#172b4d] relative min-h-[90vh] border border-white/20">
+      <div className="bg-[#f1f2f4] w-full max-w-6xl rounded-[32px] shadow-[0_30px_70px_rgba(0,0,0,0.5)] flex flex-col animate-in zoom-in-95 duration-300 text-[#172b4d] relative min-h-[90vh] border border-white/20">
             
             {/* Modal Header */}
             <div className="px-10 py-6 flex justify-between items-start shrink-0 bg-[#f1f2f4] z-20 rounded-t-[32px]">
@@ -694,12 +1142,12 @@ export default function TaskDetailModal({ isOpen, onClose, task, projectId, onUp
                   className="px-3 py-1.5 bg-white hover:bg-slate-50 border border-slate-200 rounded-xl text-[11px] font-black cursor-pointer transition-all flex items-center outline-none shadow-sm uppercase tracking-wider appearance-none pr-8 relative text-slate-600"
                   style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' fill=\'none\' viewBox=\'0 0 24 24\' stroke=\'currentColor\'%3E%3Cpath stroke-linecap=\'round\' stroke-linejoin=\'round\' stroke-width=\'2\' d=\'M19 9l-7 7-7-7\' /%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 8px center', backgroundSize: '12px' }}
                 >
-                  <option value="PENDING">Pending</option>
-                  <option value="IN_PROGRESS">In Progress</option>
-                  <option value="DONE">Completed</option>
-                  <option value="WAITING_FOR_DOCUMENT">Waiting</option>
-                  <option value="DELAYED">Delayed</option>
-                  <option value="APPROVED">Approved</option>
+                  <option value="PENDING">Chờ xử lý</option>
+                  <option value="IN_PROGRESS">Đang thực hiện</option>
+                  <option value="DONE">Hoàn thành</option>
+                  <option value="WAITING_FOR_DOCUMENT">Chờ tài liệu</option>
+                  <option value="DELAYED">Tạm hoãn</option>
+                  <option value="APPROVED">Đã duyệt</option>
                 </select>
               </div>
             </div>
@@ -735,7 +1183,7 @@ export default function TaskDetailModal({ isOpen, onClose, task, projectId, onUp
                   </h2>
                 )}
                 <div className="mt-2 text-xs font-bold text-slate-400 pl-0.5">
-                   in list <span className="underline cursor-pointer hover:text-slate-600 transition-all">{localTask.status}</span>
+                   trong danh sách <span className="underline cursor-pointer hover:text-slate-600 transition-all">{localTask.status === 'PENDING' ? 'Chờ xử lý' : localTask.status === 'IN_PROGRESS' ? 'Đang thực hiện' : localTask.status === 'DONE' ? 'Hoàn thành' : localTask.status === 'WAITING_FOR_DOCUMENT' ? 'Chờ tài liệu' : localTask.status === 'DELAYED' ? 'Tạm hoãn' : localTask.status === 'APPROVED' ? 'Đã duyệt' : localTask.status}</span>
                 </div>
               </div>
             </div>
@@ -790,6 +1238,18 @@ export default function TaskDetailModal({ isOpen, onClose, task, projectId, onUp
                 <div className="space-y-3 max-w-[320px]">
                   <div className="flex items-center justify-between mb-2 h-3">
                     <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Nhãn</h4>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1.5 min-h-[32px]">
+                    {localTask.labels?.map((label: any) => (
+                      <div 
+                        key={label.id} 
+                        title={label.name} 
+                        className="px-3 py-1 rounded-[4px] text-[12px] font-bold text-white shadow-sm flex items-center cursor-pointer hover:brightness-110 active:brightness-90 transition-all border border-black/10 min-w-[40px] justify-center" 
+                        style={{ backgroundColor: label.color }}
+                      >
+                        {label.name || '\u00A0'}
+                      </div>
+                    ))}
                     <LabelPopover 
                       projectId={projectId}
                       taskId={localTask.id}
@@ -798,13 +1258,6 @@ export default function TaskDetailModal({ isOpen, onClose, task, projectId, onUp
                          handleUpdateTask({ labelIds: newLabelIds, labels: updatedLabels });
                       }}
                     />
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2 min-h-[32px]">
-                    {localTask.labels?.map((label: any) => (
-                      <div key={label.id} title={label.name} className="px-3 rounded-md text-[11px] font-bold text-white shadow-sm h-8 flex items-center cursor-pointer hover:opacity-90" style={{ backgroundColor: label.color }}>
-                        {label.name || '\u00A0\u00A0\u00A0\u00A0\u00A0'}
-                      </div>
-                    ))}
                   </div>
                 </div>
 
@@ -815,7 +1268,7 @@ export default function TaskDetailModal({ isOpen, onClose, task, projectId, onUp
                     <div className="flex items-center px-4 h-8 bg-slate-50 border border-slate-100 hover:bg-slate-100 rounded-xl text-[11px] font-black text-slate-700 cursor-pointer transition-all shadow-sm gap-3 group">
                       <Clock className="h-3.5 w-3.5 text-slate-400 group-hover:text-amber-500 transition-colors" />
                       <span>{localTask.dueDate && format(new Date(localTask.dueDate), 'dd MMM, HH:mm')}</span>
-                      {localTask.dueDate && differenceInSeconds(new Date(localTask.dueDate), new Date()) < 0 ? (
+                      {localTask.dueDate && differenceInSeconds(new Date(localTask.dueDate), new Date(nowMs)) < 0 ? (
                         <span className="bg-rose-500 text-white px-2 py-0.5 rounded-lg text-[9px] uppercase font-black shadow-lg shadow-rose-200">QUÁ HẠN</span>
                       ) : (
                         <span className="bg-emerald-500 text-white px-2 py-0.5 rounded-lg text-[9px] uppercase font-black">MỚI</span>
@@ -825,20 +1278,20 @@ export default function TaskDetailModal({ isOpen, onClose, task, projectId, onUp
                 )}
               </div>
 
-              {/* Description */}
+              {/* Description Section */}
               <section className="space-y-5 pl-8">
                 <div className="flex items-center space-x-4 font-black text-slate-800">
                   <div className="w-8 h-8 rounded-xl bg-orange-50 flex items-center justify-center">
                     <AlignLeft className="h-4 w-4 text-orange-500" />
                   </div>
-                  <h3 className="text-sm font-bold text-slate-400 uppercase tracking-tight mb-2">Mô tả công việc</h3>
+                  <h3 className="text-sm font-extrabold text-slate-700 uppercase tracking-wide mb-2">Mô tả công việc</h3>
                 </div>
                 <div className="ml-12">
                   {isEditingDesc ? (
                     <div className="space-y-4 animate-in fade-in slide-in-from-top-1 duration-200">
                       <textarea 
                         autoFocus
-                        placeholder="Add a more detailed description..."
+                        placeholder="Thêm mô tả chi tiết hơn..."
                         className="w-full bg-white border-2 border-indigo-500 rounded-2xl p-5 text-sm text-slate-700 outline-none transition-all min-h-[180px] font-medium shadow-2xl shadow-indigo-500/5 focus:shadow-indigo-500/10"
                         value={editedDesc}
                         onChange={(e) => setEditedDesc(e.target.value)}
@@ -875,6 +1328,207 @@ export default function TaskDetailModal({ isOpen, onClose, task, projectId, onUp
                 </div>
               </section>
 
+              {/* Attachments Section */}
+              {localTask.attachments && localTask.attachments.length > 0 && (
+                <section className="space-y-6 pl-8">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-4 font-black text-slate-800">
+                      <div className="w-8 h-8 rounded-xl bg-slate-50 flex items-center justify-center">
+                        <Paperclip className="h-4 w-4 text-slate-500" />
+                      </div>
+                      <h3 className="text-sm font-extrabold text-slate-700 uppercase tracking-wide mb-2">Các tập tin đính kèm</h3>
+                    </div>
+                    <AttachmentPopover projectId={projectId} taskId={localTask.id} onUpdate={onUpdate} />
+                  </div>
+
+                  <div className="ml-12 space-y-8">
+                    {/* Links Category */}
+                    {localTask.attachments.filter((a: any) => !a.fileSize).length > 0 && (
+                      <div className="space-y-3">
+                        <h4 className="text-[11px] font-extrabold text-slate-600 uppercase tracking-wider">Liên kết</h4>
+                        <div className="space-y-2">
+                          {localTask.attachments.filter((a: any) => !a.fileSize).map((attachment: any) => (
+                            <div key={attachment.id} className="group flex items-center p-3 bg-white border border-slate-200 rounded-xl hover:shadow-md transition-all">
+                              <div className="p-2 bg-slate-50 rounded-lg mr-4">
+                                <LinkIcon className="w-4 h-4 text-blue-500" />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <a 
+                                  href={attachment.fileUrl} 
+                                  target="_blank" 
+                                  rel="noopener noreferrer" 
+                                  className="text-sm font-bold text-blue-600 hover:underline truncate block"
+                                >
+                                  {attachment.fileName}
+                                </a>
+                                <p className="text-[10px] text-slate-500 mt-0.5">Đã thêm {format(new Date(attachment.createdAt), 'dd/MM/yyyy HH:mm')}</p>
+                              </div>
+                              <Popover className="relative">
+                                <Popover.Button className="p-1.5 text-slate-400 hover:bg-slate-100 rounded-lg cursor-pointer transition-all">
+                                  <MoreVertical className="w-4 h-4" />
+                                </Popover.Button>
+                                <Transition
+                                  as={Fragment}
+                                  enter="transition ease-out duration-150"
+                                  enterFrom="opacity-0 translate-y-1"
+                                  enterTo="opacity-100 translate-y-0"
+                                  leave="transition ease-in duration-100"
+                                  leaveFrom="opacity-100 translate-y-0"
+                                  leaveTo="opacity-0 translate-y-1"
+                                >
+                                  <Popover.Panel className="absolute right-0 top-full z-[120] mt-2 w-44 rounded-xl border border-slate-200 bg-white p-1.5 shadow-lg">
+                                    <a
+                                      href={attachment.fileUrl}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100"
+                                    >
+                                      <ExternalLink className="h-3.5 w-3.5" /> Mở liên kết
+                                    </a>
+                                    <button
+                                      onClick={() => handlePreviewAttachment(attachment)}
+                                      className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100"
+                                    >
+                                      <Eye className="h-3.5 w-3.5" /> Xem trước
+                                    </button>
+                                    <button
+                                      onClick={handleCommentAttachment}
+                                      className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100"
+                                    >
+                                      <MessageSquare className="h-3.5 w-3.5" /> Nhận xét
+                                    </button>
+                                    <button
+                                      disabled={deletingAttachmentIds.has(attachment.id)}
+                                      onClick={() => handleDeleteAttachment(attachment.id)}
+                                      className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold text-rose-600 hover:bg-rose-50 disabled:opacity-50 disabled:hover:bg-transparent"
+                                    >
+                                      <X className="h-3.5 w-3.5" /> {deletingAttachmentIds.has(attachment.id) ? 'Đang xóa...' : 'Loại bỏ'}
+                                    </button>
+                                  </Popover.Panel>
+                                </Transition>
+                              </Popover>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Files Category */}
+                    {localTask.attachments.filter((a: any) => a.fileSize).length > 0 && (
+                      <div className="space-y-3">
+                        <h4 className="text-[11px] font-extrabold text-slate-600 uppercase tracking-wider">Tệp</h4>
+                        <div className="space-y-3">
+                          {localTask.attachments.filter((a: any) => a.fileSize).map((attachment: any) => {
+                            const mime = attachment.mimetype || '';
+                            const isImage = mime.includes('image');
+                            const isVideo = mime.includes('video');
+                            const isPdf = mime.includes('pdf');
+                            const badge = getAttachmentTypeBadge(attachment);
+
+                            const renderIcon = () => {
+                              if (mime.includes('video')) return <FileVideo className="w-6 h-6 text-purple-500" />;
+                              if (mime.includes('image')) return <FileImage className="w-6 h-6 text-emerald-500" />;
+                              if (mime.includes('pdf')) return <FileText className="w-6 h-6 text-rose-500" />;
+                              if (mime.includes('code') || mime.includes('javascript') || mime.includes('json')) return <FileCode className="w-6 h-6 text-blue-500" />;
+                              return <FileIcon className="w-6 h-6 text-slate-500" />;
+                            };
+
+                            return (
+                              <div key={attachment.id} className="group flex items-center p-3 bg-white border border-slate-200 rounded-xl hover:shadow-md transition-all">
+                                <button
+                                  type="button"
+                                  onClick={() => handlePreviewAttachment(attachment)}
+                                  className="w-20 h-16 bg-slate-100 rounded-lg mr-4 flex items-center justify-center shrink-0 border border-slate-200 overflow-hidden"
+                                >
+                                  {isImage ? (
+                                    <img
+                                      src={attachment.fileUrl}
+                                      alt={attachment.fileName}
+                                      className="w-full h-full object-cover"
+                                    />
+                                  ) : isVideo ? (
+                                    <video
+                                      src={attachment.fileUrl}
+                                      className="w-full h-full object-cover"
+                                      muted
+                                      preload="metadata"
+                                    />
+                                  ) : (
+                                    <div className="flex flex-col items-center uppercase font-black text-slate-500 text-[10px]">
+                                      {renderIcon()}
+                                      <span className="mt-1">{badge}</span>
+                                    </div>
+                                  )}
+                                </button>
+                                <div className="flex-1 min-w-0">
+                                  <h4 className="text-sm font-bold text-slate-800 truncate pr-4">
+                                    {attachment.fileName} 
+                                    <span className="ml-2 font-medium text-slate-500">({formatAttachmentSize(attachment.fileSize)})</span>
+                                  </h4>
+                                  <p className="text-[11px] text-slate-500 mt-1">
+                                    Đã thêm {format(new Date(attachment.createdAt), 'dd/MM/yyyy HH:mm')}
+                                  </p>
+                                  {isPdf && (
+                                    <p className="text-[11px] text-slate-600 mt-1 font-semibold">
+                                      Có thể xem trước bằng cách mở trong tab mới
+                                    </p>
+                                  )}
+                                </div>
+                                <Popover className="relative">
+                                  <Popover.Button className="p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700 rounded-lg cursor-pointer transition-all">
+                                    <MoreVertical className="w-4 h-4" />
+                                  </Popover.Button>
+                                  <Transition
+                                    as={Fragment}
+                                    enter="transition ease-out duration-150"
+                                    enterFrom="opacity-0 translate-y-1"
+                                    enterTo="opacity-100 translate-y-0"
+                                    leave="transition ease-in duration-100"
+                                    leaveFrom="opacity-100 translate-y-0"
+                                    leaveTo="opacity-0 translate-y-1"
+                                  >
+                                    <Popover.Panel className="absolute right-0 top-full z-[120] mt-2 w-44 rounded-xl border border-slate-200 bg-white p-1.5 shadow-lg">
+                                      <a
+                                        href={attachment.fileUrl}
+                                        download
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100"
+                                      >
+                                        <Download className="h-3.5 w-3.5" /> Tải xuống
+                                      </a>
+                                      <button
+                                        onClick={() => handlePreviewAttachment(attachment)}
+                                        className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100"
+                                      >
+                                        <Eye className="h-3.5 w-3.5" /> Xem trước
+                                      </button>
+                                      <button
+                                        onClick={handleCommentAttachment}
+                                        className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100"
+                                      >
+                                        <MessageSquare className="h-3.5 w-3.5" /> Nhận xét
+                                      </button>
+                                      <button
+                                        disabled={deletingAttachmentIds.has(attachment.id)}
+                                        onClick={() => handleDeleteAttachment(attachment.id)}
+                                        className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold text-rose-600 hover:bg-rose-50 disabled:opacity-50 disabled:hover:bg-transparent"
+                                      >
+                                        <X className="h-3.5 w-3.5" /> {deletingAttachmentIds.has(attachment.id) ? 'Đang xóa...' : 'Loại bỏ'}
+                                      </button>
+                                    </Popover.Panel>
+                                  </Transition>
+                                </Popover>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </section>
+              )}
+
               {/* Checklist Groups */}
               {localTask.checklists?.map((checklist: any) => {
                 const progress = calculateProgress(checklist);
@@ -884,13 +1538,48 @@ export default function TaskDetailModal({ isOpen, onClose, task, projectId, onUp
                       <div className="w-8 h-8 rounded-xl bg-emerald-50 flex items-center justify-center">
                         <CheckSquare className="h-4 w-4 text-emerald-500" />
                       </div>
-                      <h3 className="text-sm font-bold text-slate-700 flex-1">{checklist.title}</h3>
-                      <button
-                        onClick={() => handleDeleteChecklist(checklist.id, checklist.title)}
-                        className="px-3 py-1 text-xs font-semibold text-slate-500 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
-                      >
-                        Xóa
-                      </button>
+                      {editingChecklistId === checklist.id ? (
+                        <div className="flex-1 flex items-center gap-2">
+                          <input
+                            autoFocus
+                            value={editingChecklistTitle}
+                            onChange={(e) => setEditingChecklistTitle(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') saveChecklistTitle(checklist.id);
+                              if (e.key === 'Escape') cancelEditChecklistTitle();
+                            }}
+                            className="flex-1 px-3 py-1.5 border border-blue-300 bg-white rounded-lg text-sm font-semibold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500/20"
+                          />
+                          <button
+                            onClick={() => saveChecklistTitle(checklist.id)}
+                            className="px-3 py-1 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
+                          >
+                            Lưu
+                          </button>
+                          <button
+                            onClick={cancelEditChecklistTitle}
+                            className="px-3 py-1 text-xs font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
+                          >
+                            Hủy
+                          </button>
+                        </div>
+                      ) : (
+                        <>
+                          <h3 className="text-sm font-bold text-slate-700 flex-1">{checklist.title}</h3>
+                          <button
+                            onClick={() => startEditChecklistTitle(checklist.id, checklist.title)}
+                            className="px-3 py-1 text-xs font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
+                          >
+                            Sửa
+                          </button>
+                          <button
+                            onClick={() => requestDeleteChecklist(checklist.id, checklist.title)}
+                            className="px-3 py-1 text-xs font-semibold text-slate-500 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
+                          >
+                            Xóa
+                          </button>
+                        </>
+                      )}
                     </div>
 
                     <div className="ml-12 space-y-3">
@@ -943,14 +1632,20 @@ export default function TaskDetailModal({ isOpen, onClose, task, projectId, onUp
                               if (e.key === 'Enter') handleAddCheckItem(checklist.id);
                               if (e.key === 'Escape') setAddingToChecklist(null);
                             }}
-                            className="w-full border-2 border-blue-400 rounded-xl px-3 py-2 text-sm focus:outline-none font-medium text-slate-700"
+                            disabled={checklist.id.startsWith('temp-')}
+                            className={`w-full border-2 rounded-xl px-3 py-2 text-sm focus:outline-none font-medium text-slate-700 ${
+                              checklist.id.startsWith('temp-') ? 'border-slate-200 bg-slate-50 cursor-not-allowed' : 'border-blue-400'
+                            }`}
                           />
                           <div className="flex items-center gap-2">
                             <button
                               onClick={() => handleAddCheckItem(checklist.id)}
-                              className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-1 px-4 text-xs rounded-md transition-colors"
+                              disabled={checklist.id.startsWith('temp-')}
+                              className={`font-bold py-1 px-4 text-xs rounded-md transition-colors ${
+                                checklist.id.startsWith('temp-') ? 'bg-slate-300 text-slate-100 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700 text-white'
+                              }`}
                             >
-                              Thêm
+                              {checklist.id.startsWith('temp-') ? 'Đang lưu...' : 'Thêm'}
                             </button>
                             <button
                               onClick={() => setAddingToChecklist(null)}
@@ -980,7 +1675,7 @@ export default function TaskDetailModal({ isOpen, onClose, task, projectId, onUp
                       <div className="w-8 h-8 rounded-xl bg-blue-50 flex items-center justify-center">
                         <MessageSquare className="h-4 w-4 text-blue-500" />
                       </div>
-                      <h3 className="text-sm font-bold text-slate-400 uppercase tracking-tight mb-2">Hoạt động thảo luận</h3>
+                      <h3 className="text-sm font-extrabold text-slate-700 uppercase tracking-wide mb-2">Hoạt động thảo luận</h3>
                     </div>
                     <button className="text-[10px] px-3 py-1.5 bg-slate-50 hover:bg-slate-100 rounded-xl font-black transition-all text-slate-400 uppercase tracking-widest border border-slate-100">
                        Hiện chi tiết
@@ -998,16 +1693,77 @@ export default function TaskDetailModal({ isOpen, onClose, task, projectId, onUp
                      <div className="flex-1 space-y-3">
                         <div className="relative group">
                             <textarea 
-                               placeholder="Chia sẻ ý kiến của bạn..."
+                               ref={commentTextareaRef}
+                               placeholder="Chia sẻ ý kiến của bạn... (mention: @abcname)"
                                className="w-full bg-slate-50 border border-slate-100 rounded-2xl p-4 text-sm text-slate-700 hover:shadow-xl hover:shadow-slate-200/50 focus:shadow-xl focus:shadow-indigo-500/5 focus:border-indigo-500 transition-all outline-none min-h-[48px] font-medium resize-none"
                                value={newComment}
-                               onChange={(e) => setNewComment(e.target.value)}
+                               onChange={(e) => {
+                                 setNewComment(e.target.value);
+                                 updateMentionState(e.target.value, e.target.selectionStart ?? e.target.value.length);
+                               }}
                                onFocus={(e) => {
                                  e.target.style.minHeight = '120px';
                                  e.target.closest('.group')?.classList.add('is-focused');
                                }}
+                               onClick={(e) => {
+                                 updateMentionState(e.currentTarget.value, e.currentTarget.selectionStart ?? e.currentTarget.value.length);
+                               }}
+                               onKeyUp={(e) => {
+                                 updateMentionState(e.currentTarget.value, e.currentTarget.selectionStart ?? e.currentTarget.value.length);
+                               }}
+                               onKeyDown={(e) => {
+                                 // Send comment by Ctrl+Enter / Cmd+Enter.
+                                 if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+                                   e.preventDefault();
+                                   handleAddComment();
+                                   return;
+                                 }
+
+                                 if (!isMentionOpen || filteredMentionCandidates.length === 0) return;
+                                 if (e.key === 'ArrowDown') {
+                                   e.preventDefault();
+                                   setActiveMentionIndex((prev) => (prev + 1) % filteredMentionCandidates.length);
+                                 } else if (e.key === 'ArrowUp') {
+                                   e.preventDefault();
+                                   setActiveMentionIndex((prev) => (prev - 1 + filteredMentionCandidates.length) % filteredMentionCandidates.length);
+                                 } else if (e.key === 'Enter' || e.key === 'Tab') {
+                                   e.preventDefault();
+                                   applyMention(filteredMentionCandidates[activeMentionIndex].handle);
+                                 } else if (e.key === 'Escape') {
+                                   setIsMentionOpen(false);
+                                 }
+                               }}
                             />
+                            {isMentionOpen && (
+                              <div className="absolute z-30 mt-2 w-full max-h-56 overflow-auto rounded-xl border border-slate-200 bg-white shadow-xl p-1">
+                                {filteredMentionCandidates.length === 0 ? (
+                                  <div className="px-3 py-2 text-xs text-slate-500">Không có thành viên phù hợp trong dự án</div>
+                                ) : (
+                                  filteredMentionCandidates.map((candidate: any, index: number) => (
+                                    <button
+                                      type="button"
+                                      key={candidate.userId}
+                                      onClick={() => applyMention(candidate.handle)}
+                                      className={`w-full text-left px-3 py-2 rounded-lg transition-colors ${
+                                        index === activeMentionIndex ? 'bg-blue-50 text-blue-700' : 'hover:bg-slate-50 text-slate-700'
+                                      }`}
+                                    >
+                                      <div className="text-xs font-semibold">@{candidate.handle}</div>
+                                      <div className="text-[11px] text-slate-500">
+                                        {candidate.displayName}
+                                        {candidate.employeeCode ? ` (${candidate.employeeCode})` : ''}
+                                      </div>
+                                    </button>
+                                  ))
+                                )}
+                              </div>
+                            )}
                         </div>
+                        {newComment.includes('@') && (
+                          <p className="text-[11px] text-slate-500 pl-1">
+                            Mention theo dạng <span className="font-semibold text-slate-700">@abcname</span> (mã nhân sự hoặc tên không dấu liền nhau).
+                          </p>
+                        )}
                         {newComment.trim() && (
                           <div className="flex items-center space-x-3 animate-in fade-in slide-in-from-top-1 duration-200">
                              <button 
@@ -1087,54 +1843,112 @@ export default function TaskDetailModal({ isOpen, onClose, task, projectId, onUp
                                        {activity.content}
                                     </div>
                                     <div className="flex flex-wrap items-center gap-2 pl-1 mt-1">
-                                       <Popover className="relative">
-                                          <Popover.Button className="text-[12px] font-medium text-slate-500 hover:text-slate-800 underline transition-colors outline-none cursor-pointer">
-                                             😄
-                                          </Popover.Button>
-                                          <Transition
-                                            as={Fragment}
-                                            enter="transition ease-out duration-200"
-                                            enterFrom="opacity-0 translate-y-1"
-                                            enterTo="opacity-100 translate-y-0"
-                                            leave="transition ease-in duration-150"
-                                            leaveFrom="opacity-100 translate-y-0"
-                                            leaveTo="opacity-0 translate-y-1"
-                                          >
-                                            <Popover.Panel className="absolute z-[60] bottom-full mb-2 left-0 bg-white shadow-xl border border-slate-100 rounded-xl p-1.5 flex space-x-1">
-                                              {['👍', '❤️', '😂', '👀', '🎉'].map(emoji => (
-                                                <button 
-                                                  key={emoji}
-                                                  onClick={() => emit('activity:react', { activityId: activity.id, projectId, userId: user?.id, emoji })}
-                                                  className="w-8 h-8 flex items-center justify-center hover:bg-slate-100 rounded-lg text-lg transition-colors"
-                                                >
-                                                  {emoji}
-                                                </button>
-                                              ))}
-                                            </Popover.Panel>
-                                          </Transition>
-                                       </Popover>
+                                       {(() => {
+                                         const reactions = activity.reactions || [];
+                                         const currentUserReactions = reactions.filter((r: any) => r.userId === user?.id);
+                                         const myEmoji = currentUserReactions[0]?.emoji;
+                                         const reactionReady = isPersistedActivityId(activity.id);
+                                         if (!reactionReady) {
+                                           return (
+                                             <span
+                                               className="w-8 h-8 shrink-0 rounded-full flex items-center justify-center text-[#65676B] opacity-40 cursor-not-allowed"
+                                               title="Đang gửi bình luận…"
+                                             >
+                                               <AddReactionGlyph className="h-[18px] w-[18px]" />
+                                             </span>
+                                           );
+                                         }
+                                         return (
+                                           <Popover className="relative">
+                                             {({ close }) => (
+                                               <>
+                                                 <Popover.Button
+                                                   className="w-8 h-8 shrink-0 rounded-full flex items-center justify-center text-[#65676B] hover:bg-[#F0F2F5] active:bg-[#E4E6EB] transition-colors outline-none focus-visible:ring-2 focus-visible:ring-blue-400/40"
+                                                   title={myEmoji ? 'Đổi hoặc bỏ cảm xúc' : 'Thêm cảm xúc'}
+                                                 >
+                                                   {myEmoji ? (
+                                                     <span className="text-[17px] leading-none select-none">{myEmoji}</span>
+                                                   ) : (
+                                                     <AddReactionGlyph className="h-[18px] w-[18px]" />
+                                                   )}
+                                                 </Popover.Button>
+                                                 <Transition
+                                                   as={Fragment}
+                                                   enter="transition ease-out duration-200"
+                                                   enterFrom="opacity-0 translate-y-1"
+                                                   enterTo="opacity-100 translate-y-0"
+                                                   leave="transition ease-in duration-150"
+                                                   leaveFrom="opacity-100 translate-y-0"
+                                                   leaveTo="opacity-0 translate-y-1"
+                                                 >
+                                                   <Popover.Panel className="absolute z-[60] bottom-full mb-2 left-0 bg-white shadow-xl border border-slate-200/80 rounded-full py-1 px-1.5 flex items-center gap-0.5">
+                                                     {EMOJI_OPTIONS.map((emoji) => (
+                                                       <button
+                                                         key={emoji}
+                                                         type="button"
+                                                         onClick={() => {
+                                                           handleReactionClick(activity, emoji);
+                                                           close();
+                                                         }}
+                                                         className={`w-9 h-9 flex items-center justify-center hover:bg-slate-100 rounded-full text-[20px] transition-colors ${
+                                                           myEmoji === emoji ? 'bg-blue-50 ring-2 ring-blue-200/80' : ''
+                                                         }`}
+                                                       >
+                                                         {emoji}
+                                                       </button>
+                                                     ))}
+                                                   </Popover.Panel>
+                                                 </Transition>
+                                               </>
+                                             )}
+                                           </Popover>
+                                         );
+                                       })()}
 
-                                       {activity.reactions && activity.reactions.length > 0 && (
-                                         <div className="flex items-center space-x-1.5 ml-1">
-                                            {Array.from(new Set(activity.reactions.map((r: any) => r.emoji))).map((emoji: any) => {
-                                              const count = activity.reactions.filter((r: any) => r.emoji === emoji).length;
-                                              const hasReacted = activity.reactions.some((r: any) => r.emoji === emoji && r.userId === user?.id);
-                                              const usersWhoReacted = activity.reactions.filter((r: any) => r.emoji === emoji).map((r: any) => r.user?.displayName).join(', ');
-                                              
-                                              return (
-                                                <button 
-                                                  key={emoji as string}
-                                                  title={usersWhoReacted}
-                                                  onClick={() => emit('activity:react', { activityId: activity.id, projectId, userId: user?.id, emoji })}
-                                                  className={`flex items-center justify-center space-x-1.5 px-2 py-0.5 rounded-full text-[11px] font-bold transition-all border ${hasReacted ? 'bg-blue-50 border-blue-200 text-blue-700' : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'}`}
-                                                >
-                                                  <span className="text-[12px] leading-none">{emoji as string}</span>
-                                                  <span className="leading-none mt-px">{count}</span>
-                                                </button>
-                                              )
-                                            })}
-                                         </div>
-                                       )}
+                                       {(() => {
+                                         const reactions = activity.reactions || [];
+                                         const uniqueEmojis = Array.from(new Set(reactions.map((r: any) => r.emoji)));
+                                         const onlyCurrentUserReactions =
+                                           reactions.length > 0 && reactions.every((r: any) => r.userId === user?.id);
+                                         if (
+                                           reactions.length === 0 ||
+                                           (onlyCurrentUserReactions && uniqueEmojis.length === 1)
+                                         ) {
+                                           return null;
+                                         }
+                                         return (
+                                           <div className="flex items-center gap-1.5 ml-0.5">
+                                             {uniqueEmojis.map((emoji: any) => {
+                                               const hasReacted = reactions.some(
+                                                 (r: any) => r.emoji === emoji && r.userId === user?.id
+                                               );
+                                               const usersWhoReacted = reactions
+                                                 .filter((r: any) => r.emoji === emoji)
+                                                 .map((r: any) => r.user?.displayName)
+                                                 .join(', ');
+                                               const count = reactions.filter((r: any) => r.emoji === emoji).length;
+                                               return (
+                                                 <button
+                                                   key={emoji as string}
+                                                   type="button"
+                                                   title={usersWhoReacted}
+                                                   onClick={() => handleReactionClick(activity, emoji as string)}
+                                                   className={`flex items-center gap-0.5 pl-1.5 pr-2 py-0.5 rounded-full text-[12px] font-semibold transition-colors border ${
+                                                     hasReacted
+                                                       ? 'bg-blue-50/90 border-blue-200 text-blue-800'
+                                                       : 'bg-[#F0F2F5] border-transparent text-slate-700 hover:bg-[#E4E6EB]'
+                                                   }`}
+                                                 >
+                                                   <span className="leading-none">{emoji as string}</span>
+                                                   {count > 1 && (
+                                                     <span className="text-[11px] text-slate-600 tabular-nums">{count}</span>
+                                                   )}
+                                                 </button>
+                                               );
+                                             })}
+                                           </div>
+                                         );
+                                       })()}
 
                                        <span className="text-slate-300 text-[10px] mx-1">•</span>
                                        {user?.id === activity.user.id && (
@@ -1215,10 +2029,8 @@ export default function TaskDetailModal({ isOpen, onClose, task, projectId, onUp
                   </Popover>
                 </div>
 
-                {/* Attachment Button */}
-                <button className="w-full px-4 py-3 bg-white border border-slate-100 hover:bg-slate-50 rounded-2xl text-xs font-black flex items-center transition-all shadow-lg shadow-slate-100/50 text-slate-600">
-                   <Paperclip className="h-4 w-4 mr-3 text-slate-400" /> Đính kèm tệp
-                </button>
+                {/* Attachment Section Handlers */}
+                <AttachmentPopover projectId={projectId} taskId={localTask.id} onUpdate={onUpdate} />
               </div>
 
               {/* Actions Section */}
@@ -1245,8 +2057,97 @@ export default function TaskDetailModal({ isOpen, onClose, task, projectId, onUp
             </div>
           </div>
         </div>
-      )}
-    </Popover>
-  </div>
-);
+
+        {previewAttachment && typeof window !== 'undefined' && createPortal(
+          <div className="fixed inset-0 z-[999] bg-black/65 backdrop-blur-[2px] p-6">
+            <div className="relative w-full h-full max-w-6xl mx-auto">
+              <button
+                type="button"
+                onClick={() => setPreviewAttachment(null)}
+                className="absolute top-4 right-4 z-20 w-10 h-10 rounded-full bg-slate-900/90 hover:bg-black text-white flex items-center justify-center transition-colors shadow-lg"
+                title="Đóng xem trước"
+              >
+                <X className="w-5 h-5" />
+              </button>
+
+              <div className="w-full h-full rounded-lg border border-white/25 bg-white shadow-[0_30px_90px_rgba(0,0,0,0.55)] overflow-hidden">
+                <div className="h-[calc(100%-48px)] bg-slate-100">
+                  {getAttachmentPreviewType(previewAttachment) === 'image' ? (
+                    <img
+                      src={previewAttachment.fileUrl}
+                      alt={previewAttachment.fileName}
+                      className="w-full h-full object-contain"
+                    />
+                  ) : getAttachmentPreviewType(previewAttachment) === 'video' ? (
+                    <video
+                      src={previewAttachment.fileUrl}
+                      className="w-full h-full bg-black"
+                      controls
+                      autoPlay
+                    />
+                  ) : isPreviewableAttachment(previewAttachment) ? (
+                    <iframe
+                      src={getEmbedPreviewUrl(previewAttachment)}
+                      title={previewAttachment.fileName}
+                      className="w-full h-full border-0"
+                    />
+                  ) : (
+                    <div className="h-full w-full flex items-center justify-center p-8 bg-white">
+                      <div className="max-w-md text-center">
+                        <p className="text-base font-bold text-slate-700">Không thể xem trước loại tệp này</p>
+                        <p className="text-sm text-slate-500 mt-2">
+                          Bạn có thể mở ở tab mới hoặc tải xuống để xem đầy đủ nội dung.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="h-12 bg-slate-900/90 text-white flex items-center justify-between px-4 text-xs">
+                  <span className="truncate pr-4 font-medium text-slate-100">
+                    {previewAttachment.fileName}
+                  </span>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <a
+                      href={previewAttachment.fileUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 transition-colors"
+                    >
+                      Mở tab mới
+                    </a>
+                    <a
+                      href={previewAttachment.fileUrl}
+                      download
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 transition-colors"
+                    >
+                      Tải xuống
+                    </a>
+                    <button
+                      type="button"
+                      disabled={deletingAttachmentIds.has(previewAttachment.id)}
+                      onClick={() => handleDeleteAttachment(previewAttachment.id)}
+                      className="px-2.5 py-1 rounded bg-rose-600/90 hover:bg-rose-500 transition-colors disabled:opacity-50"
+                    >
+                      {deletingAttachmentIds.has(previewAttachment.id) ? 'Đang xóa...' : 'Xóa'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
+
+        <ConfirmModal
+          isOpen={!!checklistToDelete}
+          title="Xóa danh sách checklist?"
+          description={`Bạn sắp xóa "${checklistToDelete?.title || 'danh sách'}". Hành động này không thể hoàn tác.`}
+          onConfirm={confirmDeleteChecklist}
+          onCancel={() => setChecklistToDelete(null)}
+        />
+      </div>
+  );
 }

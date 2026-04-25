@@ -22,7 +22,7 @@ export default function ActivatePage() {
 
     if (!token || !email) {
       setStatus('error');
-      setErrorMessage('Invalid activation link. Missing token or email parameter.');
+      setErrorMessage('Liên kết kích hoạt không hợp lệ. Thiếu tham số token hoặc email.');
       return;
     }
 
@@ -36,7 +36,7 @@ export default function ActivatePage() {
         setStatus('success');
       } catch (err: any) {
         setStatus('error');
-        setErrorMessage(err.response?.data?.error || 'Verification failed');
+        setErrorMessage(err.response?.data?.error || 'Xác minh thất bại');
       }
     };
 
@@ -46,7 +46,7 @@ export default function ActivatePage() {
   const handleSetupPassword = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newPassword || newPassword.length < 6) {
-      toast.error('Password must be at least 6 characters');
+      toast.error('Mật khẩu phải có ít nhất 6 ký tự');
       return;
     }
 
@@ -56,10 +56,10 @@ export default function ActivatePage() {
         email: email as string,
         newPassword
       });
-      toast.success('Password configured successfully!');
+      toast.success('Cấu hình mật khẩu thành công!');
       router.push('/login');
     } catch (err: any) {
-      toast.error(err.response?.data?.error || 'Failed to setup password');
+      toast.error(err.response?.data?.error || 'Không thể thiết lập mật khẩu');
     } finally {
       setIsSubmitting(false);
     }
@@ -69,9 +69,9 @@ export default function ActivatePage() {
     setIsResending(true);
     try {
       await axiosInstance.post('/auth/resend-activation', { email: email as string });
-      toast.success('A new activation link has been sent to your email.');
+      toast.success('Liên kết kích hoạt mới đã được gửi đến email của bạn.');
     } catch (err: any) {
-      toast.error(err.response?.data?.error || 'Failed to resend activation link');
+      toast.error(err.response?.data?.error || 'Không thể gửi lại liên kết kích hoạt');
     } finally {
       setIsResending(false);
     }
@@ -80,12 +80,12 @@ export default function ActivatePage() {
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col justify-center py-12 px-4 sm:px-6 lg:px-8">
       <Head>
-        <title>Activate Account | PMS</title>
+        <title>Kích hoạt tài khoản | PMS</title>
       </Head>
       
       <div className="sm:mx-auto sm:w-full sm:max-w-md">
         <h2 className="mt-6 text-center text-3xl font-extrabold text-slate-900">
-          Account Activation
+          Kích hoạt tài khoản
         </h2>
       </div>
 
@@ -95,14 +95,14 @@ export default function ActivatePage() {
           {status === 'loading' && (
             <div className="flex flex-col items-center justify-center py-8">
               <Loader2 className="h-10 w-10 text-slate-400 animate-spin mb-4" />
-              <p className="text-slate-500 text-sm">Verifying your secure link...</p>
+              <p className="text-slate-500 text-sm">Đang xác minh liên kết bảo mật của bạn...</p>
             </div>
           )}
 
           {status === 'error' && (
             <div className="flex flex-col items-center py-6 text-center">
               <XCircle className="h-12 w-12 text-red-500 mb-4" />
-              <h3 className="text-lg font-medium text-slate-900 mb-2">Activation Failed</h3>
+              <h3 className="text-lg font-medium text-slate-900 mb-2">Kích hoạt thất bại</h3>
               <p className="text-sm text-slate-500 mb-6">{errorMessage}</p>
               
               <button
@@ -111,7 +111,7 @@ export default function ActivatePage() {
                 className="w-full flex justify-center py-2 px-4 border border-slate-300 rounded-md shadow-sm text-sm font-medium text-slate-700 bg-white hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-900 disabled:opacity-50 transition-colors"
               >
                 {isResending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <MailWarning className="h-4 w-4 mr-2 text-slate-500" />}
-                Resend Activation Link
+                Gửi lại liên kết kích hoạt
               </button>
             </div>
           )}
@@ -120,16 +120,16 @@ export default function ActivatePage() {
             <div className="animate-in fade-in zoom-in duration-300">
               <div className="flex flex-col items-center text-center mb-6 border-b border-slate-100 pb-6">
                 <CheckCircle2 className="h-12 w-12 text-green-500 mb-3" />
-                <h3 className="text-lg font-medium text-slate-900 mb-1">Account Verified!</h3>
+                <h3 className="text-lg font-medium text-slate-900 mb-1">Tài khoản đã xác minh!</h3>
                 <p className="text-sm text-slate-500 px-4">
-                  We've emailed you a temporary password just in case. However, you should securely configure your permanent password below right now.
+                  Chúng tôi đã gửi một mật khẩu tạm thời vào email của bạn. Tuy nhiên, bạn nên thiết lập mật khẩu vĩnh viễn ngay bên dưới.
                 </p>
               </div>
 
               <form onSubmit={handleSetupPassword} className="space-y-6">
                 <div>
                   <label htmlFor="newPassword" className="block text-sm font-medium text-slate-700">
-                    Set New Password
+                    Đặt mật khẩu mới
                   </label>
                   <div className="mt-1">
                     <input
@@ -144,7 +144,7 @@ export default function ActivatePage() {
                       placeholder="••••••••"
                     />
                   </div>
-                  <p className="text-xs text-slate-400 mt-2">Must be at least 6 characters long.</p>
+                  <p className="text-xs text-slate-400 mt-2">Phải dài ít nhất 6 ký tự.</p>
                 </div>
 
                 <div>
@@ -153,7 +153,7 @@ export default function ActivatePage() {
                     disabled={isSubmitting}
                     className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-slate-900 hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-900 disabled:opacity-70 transition-colors"
                   >
-                    {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Save & Login'}
+                    {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Lưu & Đăng nhập'}
                   </button>
                 </div>
               </form>

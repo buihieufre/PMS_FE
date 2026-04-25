@@ -13,11 +13,11 @@ interface ManageMemberModalProps {
 }
 
 const ROLES = [
-  { value: 'PROJECT_OWNER', label: 'Project Owner' },
-  { value: 'TEAM_LEAD', label: 'Team Lead' },
-  { value: 'EMPLOYEE', label: 'Employee' },
+  { value: 'PROJECT_OWNER', label: 'Chủ dự án' },
+  { value: 'TEAM_LEAD', label: 'Trưởng nhóm' },
+  { value: 'EMPLOYEE', label: 'Nhân viên' },
   { value: 'FREELANCER', label: 'Freelancer' },
-  { value: 'CLIENT', label: 'Client' },
+  { value: 'CLIENT', label: 'Khách hàng' },
 ];
 
 type Tab = 'department' | 'email';
@@ -116,7 +116,7 @@ export default function ManageMemberModal({ isOpen, onClose, projectId, departme
   const handleSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!email || !projectRole) {
-      toast.error('Please select a user and a role');
+      toast.error('Vui lòng chọn người dùng và vai trò');
       return;
     }
 
@@ -126,18 +126,18 @@ export default function ManageMemberModal({ isOpen, onClose, projectId, departme
         await axiosInstance.patch(`/projects/${projectId}/members/${existingMember.user.id}`, {
           projectRole
         });
-        toast.success('Member updated successfully');
+        toast.success('Đã cập nhật vai trò thành viên');
       } else {
         await axiosInstance.post(`/projects/${projectId}/members`, {
           email,
           projectRole
         });
-        toast.success('Member added successfully');
+        toast.success('Đã chọn thành viên vào dự án');
       }
       onSuccess();
       onClose();
     } catch (error: any) {
-      toast.error(error.response?.data?.error || 'Operation failed');
+      toast.error(error.response?.data?.error || 'Thao tác thất bại');
     } finally {
       setIsSubmitting(false);
     }
@@ -159,9 +159,9 @@ export default function ManageMemberModal({ isOpen, onClose, projectId, departme
              </div>
              <div>
                 <h2 className="text-lg font-bold text-slate-800 leading-tight">
-                  {existingMember ? 'Manage Role' : 'Add Team Member'}
+                  {existingMember ? 'Quản lý vai trò' : 'Thêm thành viên nhóm'}
                 </h2>
-                <p className="text-[11px] text-slate-500 font-medium uppercase tracking-wider">Project Access Control</p>
+                <p className="text-[11px] text-slate-500 font-medium uppercase tracking-wider">Kiểm soát quyền truy cập dự án</p>
              </div>
           </div>
           <button onClick={onClose} className="p-2 hover:bg-slate-200 rounded-xl text-slate-400 hover:text-slate-600 transition-all">
@@ -178,14 +178,14 @@ export default function ManageMemberModal({ isOpen, onClose, projectId, departme
                 className={`flex-1 flex items-center justify-center py-2 text-xs font-bold rounded-lg transition-all ${activeTab === 'department' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
               >
                 <Building2 className={`h-3.5 w-3.5 mr-2 ${activeTab === 'department' ? 'text-emerald-500' : ''}`} />
-                By Department
+                Theo phòng ban
               </button>
               <button 
                 onClick={() => setActiveTab('email')}
                 className={`flex-1 flex items-center justify-center py-2 text-xs font-bold rounded-lg transition-all ${activeTab === 'email' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
               >
                 <Mail className={`h-3.5 w-3.5 mr-2 ${activeTab === 'email' ? 'text-sky-500' : ''}`} />
-                Search / Email
+                Tìm kiếm / Email
               </button>
             </div>
           </div>
@@ -194,7 +194,7 @@ export default function ManageMemberModal({ isOpen, onClose, projectId, departme
         <div className="p-6 space-y-5">
            {/* Member Role Selection (Always visible) */}
            <div className="space-y-1.5">
-              <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide">Assign Role</label>
+              <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide">Giao vai trò</label>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                  {ROLES.map((role) => (
                     <button
@@ -231,13 +231,13 @@ export default function ManageMemberModal({ isOpen, onClose, projectId, departme
                 {activeTab === 'department' ? (
                   <>
                     <div className="space-y-1.5">
-                       <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide">Select Department</label>
+                       <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide">Chọn phòng ban</label>
                        <select 
                           value={selectedDeptId}
                           onChange={(e) => setSelectedDeptId(e.target.value)}
                           className="w-full px-4 py-2.5 bg-slate-50 border border-slate-100 rounded-xl text-sm font-medium text-slate-700 outline-none focus:ring-2 focus:ring-slate-900/5 focus:border-slate-900 transition-all"
                        >
-                          <option value="">-- Choose Department --</option>
+                          <option value="">-- Chọn phòng ban --</option>
                           {departments.map(d => (
                             <option key={d.id} value={d.id}>{d.name} ({d._count.users})</option>
                           ))}
@@ -245,16 +245,16 @@ export default function ManageMemberModal({ isOpen, onClose, projectId, departme
                     </div>
 
                     <div className="space-y-1.5">
-                       <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide">Available Users</label>
+                       <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide">Người dùng khả dụng</label>
                        <div className="grid grid-cols-1 gap-2 max-h-[160px] overflow-y-auto pr-2 custom-scrollbar">
                           {loadingUsers ? (
                             <div className="col-span-full py-8 flex flex-col items-center justify-center space-y-2 opacity-50">
                                <Loader2 className="h-5 w-5 animate-spin text-slate-400" />
-                               <span className="text-[10px] font-bold text-slate-400">Loading members...</span>
+                               <span className="text-[10px] font-bold text-slate-400">Đang tải thành viên...</span>
                             </div>
                           ) : usersInDept.length === 0 ? (
                             <div className="col-span-full py-8 text-center text-xs text-slate-400 bg-slate-50 rounded-xl border border-dashed border-slate-200 font-medium italic">
-                               No available users found in this department
+                               Không tìm thấy người dùng nào trong phòng ban này
                             </div>
                           ) : (
                             usersInDept.map(u => (
@@ -290,7 +290,7 @@ export default function ManageMemberModal({ isOpen, onClose, projectId, departme
                 ) : (
                    <div className="space-y-4" ref={searchRef}>
                       <div className="space-y-1.5 relative">
-                         <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide">Member Search</label>
+                         <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide">Tìm kiếm thành viên</label>
                          <div className="relative">
                             <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
                             <input
@@ -301,7 +301,7 @@ export default function ManageMemberModal({ isOpen, onClose, projectId, departme
                                 if (!isSearchOpen) setIsSearchOpen(true);
                               }}
                               onFocus={() => setIsSearchOpen(true)}
-                              placeholder="Type name or email address..."
+                              placeholder="Nhập tên hoặc địa chỉ email..."
                               className="w-full pl-10 pr-10 py-2.5 bg-slate-50 border border-slate-100 rounded-xl text-sm font-medium focus:ring-2 focus:ring-slate-900/5 focus:border-slate-900 outline-none transition-all"
                             />
                             <button 
@@ -317,7 +317,7 @@ export default function ManageMemberModal({ isOpen, onClose, projectId, departme
                             <div className="absolute z-20 w-full mt-2 bg-white border border-slate-200 rounded-2xl shadow-2xl max-h-60 overflow-y-auto overflow-x-hidden p-1 custom-scrollbar animate-in fade-in slide-in-from-top-2">
                                {filteredGlobalUsers.length === 0 ? (
                                   <div className="px-4 py-8 text-center text-xs text-slate-400 font-medium italic">
-                                     No matching users found
+                                     Không tìm thấy người dùng nào phù hợp
                                   </div>
                                ) : (
                                   <ul className="space-y-1">
@@ -359,7 +359,7 @@ export default function ManageMemberModal({ isOpen, onClose, projectId, departme
                                   <Check className="h-4 w-4 text-emerald-500" />
                                </div>
                                <div>
-                                  <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-tight">Selected Target</p>
+                                  <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-tight">Đối tượng đã chọn</p>
                                   <p className="text-xs font-bold text-slate-800">{displayName || email}</p>
                                </div>
                             </div>
@@ -368,7 +368,7 @@ export default function ManageMemberModal({ isOpen, onClose, projectId, departme
                                onClick={() => { setEmail(''); setDisplayName(''); setSearchTerm(''); }}
                                className="text-[10px] font-bold text-slate-400 hover:text-rose-500 transition-colors bg-white px-2 py-1 rounded-md border border-slate-100"
                             >
-                               CLEAR
+                               XÓA
                             </button>
                          </div>
                       )}
@@ -385,7 +385,7 @@ export default function ManageMemberModal({ isOpen, onClose, projectId, departme
             onClick={onClose}
             className="px-5 py-2 text-xs font-bold text-slate-500 hover:text-slate-700 transition-all bg-white border border-slate-200 rounded-xl shadow-sm hover:shadow-md active:scale-95"
           >
-            Go Back
+            Quay lại
           </button>
           <button
             onClick={() => handleSubmit()}
@@ -395,12 +395,12 @@ export default function ManageMemberModal({ isOpen, onClose, projectId, departme
             {isSubmitting ? (
                <>
                  <Loader2 className="h-3.5 w-3.5 mr-2 animate-spin" />
-                 Processing...
+                 Đang xử lý...
                </>
-            ) : existingMember ? 'Save Changes' : (
+            ) : existingMember ? 'Lưu thay đổi' : (
                <>
                  <UserPlus className="h-3.5 w-3.5 mr-2" />
-                 Add to Project
+                 Thêm vào dự án
                </>
             )}
           </button>

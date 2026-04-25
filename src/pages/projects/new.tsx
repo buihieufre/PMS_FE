@@ -8,6 +8,7 @@ import Link from 'next/link';
 import { useRef, useCallback, useMemo } from 'react';
 import { getEditorTools } from '@/lib/editorTools';
 import dynamic from 'next/dynamic';
+import { toast } from 'sonner';
 
 const EditorJs = dynamic(
   () => import('react-editor-js').then((mod) => mod.createReactEditorJS()),
@@ -78,7 +79,7 @@ export default function CreateProjectPage() {
       router.push('/projects');
     } catch (error) {
       console.error('Failed to create project', error);
-      alert('Error creating project');
+      toast.error('Có lỗi xảy ra khi tạo dự án');
       setIsSubmitting(false);
     }
   };
@@ -93,8 +94,8 @@ export default function CreateProjectPage() {
           <ArrowLeft className="h-5 w-5" />
         </Link>
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Create New Project</h1>
-          <p className="text-slate-500 text-sm mt-1">Setup your project details and attachments.</p>
+          <h1 className="text-2xl font-bold text-slate-900">Tạo dự án mới</h1>
+          <p className="text-slate-500 text-sm mt-1">Thiết lập chi tiết dự án và các tệp đính kèm đi kèm.</p>
         </div>
       </div>
 
@@ -102,23 +103,23 @@ export default function CreateProjectPage() {
         <form onSubmit={handleSubmit} className="p-8 space-y-6">
           <div className="grid gap-6">
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Project Name <span className="text-red-500">*</span></label>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Tên dự án <span className="text-red-500">*</span></label>
               <input
                 type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 required
                 className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-slate-900"
-                placeholder="E.g. E-Commerce Redesign"
+                placeholder="v.d. Tái thiết kế Website"
               />
             </div>
             
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Description <span className="text-red-500">*</span></label>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Mô tả dự án <span className="text-red-500">*</span></label>
               <div className="prose max-w-none w-full border border-slate-300 rounded-md p-4 bg-white min-h-[150px] focus-within:ring-2 focus-within:ring-slate-900 focus-within:border-slate-900">
                 <EditorJs
                   onInitialize={handleInitialize}
-                  placeholder="Provide a detailed description of the project goals..."
+                  placeholder="Cung cấp mô tả chi tiết về mục tiêu của dự án..."
                   tools={tools as any}
                 />
               </div>
@@ -126,10 +127,10 @@ export default function CreateProjectPage() {
 
             <div className="pt-4 border-t border-slate-200">
               <div className="flex justify-between items-center mb-4">
-                <label className="block text-sm font-medium text-slate-700">Project Attachments (Max 15)</label>
+                <label className="block text-sm font-medium text-slate-700">Tệp đính kèm dự án (Tối đa 15)</label>
                 <label className="cursor-pointer bg-slate-100 hover:bg-slate-200 text-slate-700 py-1.5 px-3 rounded-md text-sm font-medium flex items-center transition-colors">
                   <Upload className="h-4 w-4 mr-2" />
-                  Select Files
+                  Chọn tệp
                   <input type="file" multiple className="hidden" onChange={handleFileChange} />
                 </label>
               </div>
@@ -139,7 +140,7 @@ export default function CreateProjectPage() {
                   {attachments.map((att, idx) => (
                     <div key={idx} className="flex items-center space-x-3 bg-slate-50 p-3 rounded-lg border border-slate-200">
                       <div className="flex-1">
-                        <label className="text-xs text-slate-500 mb-1 block">Custom Display Name</label>
+                        <label className="text-xs text-slate-500 mb-1 block">Tên hiển thị tùy chỉnh</label>
                         <input
                           type="text"
                           value={att.customName}
@@ -170,17 +171,17 @@ export default function CreateProjectPage() {
               onClick={() => router.push('/projects')}
               className="py-2 px-4 border border-slate-300 rounded-md text-slate-700 hover:bg-slate-50 transition-colors font-medium text-sm"
             >
-              Cancel
+              Hủy
             </button>
             <button
               type="submit"
               disabled={isSubmitting}
               className="py-2 px-4 bg-slate-900 text-white rounded-md hover:bg-slate-800 transition-colors font-medium text-sm flex items-center disabled:opacity-70 disabled:cursor-not-allowed"
             >
-              {isSubmitting ? 'Saving...' : (
+              {isSubmitting ? 'Đang lưu...' : (
                 <>
                   <Save className="h-4 w-4 mr-2" />
-                  Create Project
+                  Tạo dự án
                 </>
               )}
             </button>

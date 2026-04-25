@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useRouter } from 'next/router';
 import Head from 'next/head';
 import MainLayout from '@/components/Layout/MainLayout';
@@ -16,10 +16,11 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import { PageHeader } from '@/components/Layout/PageHeader';
-import { useSocket } from '@/hooks/useSocket';
+import { useSocket, getSocket } from '@/hooks/useSocket';
 import { toast } from 'sonner';
 import ManageMemberModal from '@/components/Modal/ManageMemberModal';
 import { useAuthStore } from '@/store/authStore';
+import { shouldShowTaskOnBoard } from '@/lib/boardTaskVisibility';
 
 export default function BoardPage() {
   const router = useRouter();
@@ -38,6 +39,11 @@ export default function BoardPage() {
   const [isBackgroundPopoverOpen, setIsBackgroundPopoverOpen] = useState<boolean | 'bg'>(false);
 
   const { user } = useAuthStore() as { user: any };
+
+  const myProjectMember = useMemo(
+    () => members.find((m: any) => m.userId === user?.id),
+    [members, user?.id]
+  );
 
   const fetchData = useCallback(async () => {
     if (!projectId) return;
@@ -60,7 +66,7 @@ export default function BoardPage() {
     }
   }, [projectId]);
 
-  const { on, off, emit, socket } = useSocket(projectId as string);
+  const { socket } = useSocket(projectId as string);
 
   useEffect(() => {
     fetchData();
@@ -78,175 +84,219 @@ export default function BoardPage() {
   }, [tasks, router.query.taskId, projectId, router, selectedTask]);
 
   useEffect(() => {
-    if (!projectId) return;
+    if (!projectId || typeof window === 'undefined') return;
+    const s = getSocket();
+    if (!s) return;
 
-    // Direct Push-Update logic
-    on('task:moved', ({ taskId, status, task: updatedTask }: any) => {
-      setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status, ...updatedTask } : t));
-    });
+    const hMoved = ({ taskId, status, task: updatedTask }: any) => {
+      setTasks((prev) => prev.map((t) => (t.id === taskId ? { ...t, status, ...updatedTask } : t)));
+    };
 
-    on('task:updated', (updatedTask: any) => {
-      // Ignore if echo from same socket
-      if (updatedTask.senderId === socket?.id) return;
-      
-      // Ignore if stale update
+    const hUpdated = (updatedTask: any) => {
+      if (updatedTask.senderId === s.id) return;
+
       const lastUpdate = lastTaskUpdatesRef.current[updatedTask.id] || 0;
       if (updatedTask.updatedAt && updatedTask.updatedAt <= lastUpdate) return;
-      
+
       if (updatedTask.updatedAt) {
-          lastTaskUpdatesRef.current[updatedTask.id] = updatedTask.updatedAt;
+        lastTaskUpdatesRef.current[updatedTask.id] = updatedTask.updatedAt;
       }
 
-      setTasks(prev => prev.map(t => t.id === updatedTask.id ? { ...t, ...updatedTask } : t));
-      // Update selected task if it's the one being updated
-      setSelectedTask((prev: any) => prev?.id === updatedTask.id ? { ...prev, ...updatedTask } : prev);
-    });
+      setTasks((prev) => {
+        const idx = prev.findIndex((t) => t.id === updatedTask.id);
+        const show = shouldShowTaskOnBoard(updatedTask, user?.id, myProjectMember);
+        if (idx >= 0) {
+          if (!show) {
+            return prev.filter((t) => t.id !== updatedTask.id);
+          }
+          return prev.map((t) => (t.id === updatedTask.id ? { ...t, ...updatedTask } : t));
+        }
+        if (show) {
+          return [updatedTask, ...prev];
+        }
+        return prev;
+      });
+      setSelectedTask((prev: any) => {
+        if (prev?.id !== updatedTask.id) return prev;
+        if (!shouldShowTaskOnBoard(updatedTask, user?.id, myProjectMember)) {
+          return null;
+        }
+        return { ...prev, ...updatedTask };
+      });
+    };
 
-    on('task:created', (newTask: any) => {
-      setTasks(prev => {
-        if (prev.find(t => t.id === newTask.id)) return prev;
+    const hCreated = (newTask: any) => {
+      setTasks((prev) => {
+        if (prev.find((t) => t.id === newTask.id)) return prev;
+        if (!shouldShowTaskOnBoard(newTask, user?.id, myProjectMember)) return prev;
         return [newTask, ...prev];
       });
-    });
+    };
 
-    on('task:deleted', ({ taskId }: any) => {
-      setTasks(prev => prev.filter(t => t.id !== taskId));
-      setSelectedTask((prev: any) => prev?.id === taskId ? null : prev);
-    });
+    const hDeleted = ({ taskId }: any) => {
+      setTasks((prev) => prev.filter((t) => t.id !== taskId));
+      setSelectedTask((prev: any) => (prev?.id === taskId ? null : prev));
+    };
 
-    on('tasks:reordered', ({ taskIds, status, senderId }: any) => {
-      if (senderId === socket?.id) return;
-
-      setTasks(prev => {
-        // Move tasks to the new status and order them
-        const otherTasks = prev.filter(t => !taskIds.includes(t.id));
-        const updatedTasksInStatus = taskIds.map((id: string) => {
-          const task = prev.find(t => t.id === id);
-          return task ? { ...task, status } : null;
-        }).filter(Boolean);
-        
+    const hReordered = ({ taskIds, status, senderId }: any) => {
+      if (senderId === s.id) return;
+      setTasks((prev) => {
+        const otherTasks = prev.filter((t) => !taskIds.includes(t.id));
+        const updatedTasksInStatus = taskIds
+          .map((id: string) => {
+            const task = prev.find((t) => t.id === id);
+            return task ? { ...task, status } : null;
+          })
+          .filter(Boolean);
         return [...otherTasks, ...updatedTasksInStatus] as any[];
       });
-    });
+    };
 
-    on('project:backgroundChanged', ({ projectId: changedId, background, updatedAt, senderId }: any) => {
+    const hBackground = ({ projectId: changedId, background, updatedAt, senderId }: any) => {
       if (changedId === projectId) {
-        // Ignore if echo from same socket
-        if (senderId === socket?.id) return;
-        
-        // Ignore if stale update
+        if (senderId === s.id) return;
         if (updatedAt && updatedAt <= lastBgUpdateRef.current) return;
-        
         if (updatedAt) lastBgUpdateRef.current = updatedAt;
         setBoardBackground(background);
       }
-    });
+    };
 
-    on('activity:added', ({ taskId, activity }: any) => {
-      setTasks(prev => prev.map(t => {
-        if (t.id !== taskId) return t;
-        if (t.activities?.some((a: any) => a.id === activity.id)) return t;
-        return { ...t, activities: [activity, ...(t.activities || [])] };
-      }));
-    });
+    const hActivityAdded = ({ taskId, activity }: any) => {
+      setTasks((prev) =>
+        prev.map((t) => {
+          if (t.id !== taskId) return t;
+          if (t.activities?.some((a: any) => a.id === activity.id)) return t;
+          return { ...t, activities: [activity, ...(t.activities || [])] };
+        })
+      );
+    };
 
-    on('activity:edited', ({ activity }: any) => {
-      setTasks(prev => prev.map(t => {
-        if (!t.activities?.some((a: any) => a.id === activity.id)) return t;
-        return {
-          ...t,
-          activities: t.activities.map((a: any) => a.id === activity.id ? activity : a)
-        };
-      }));
-    });
+    const hActivityEdited = ({ activity }: any) => {
+      setTasks((prev) =>
+        prev.map((t) => {
+          if (!t.activities?.some((a: any) => a.id === activity.id)) return t;
+          return {
+            ...t,
+            activities: t.activities.map((a: any) => (a.id === activity.id ? activity : a))
+          };
+        })
+      );
+    };
 
-    on('activity:deleted', ({ activityId }: any) => {
-      setTasks(prev => prev.map(t => {
-        if (!t.activities?.some((a: any) => a.id === activityId)) return t;
-        return {
-          ...t,
-          activities: t.activities.filter((a: any) => a.id !== activityId)
-        };
-      }));
-    });
+    const hActivityDeleted = ({ activityId }: any) => {
+      setTasks((prev) =>
+        prev.map((t) => {
+          if (!t.activities?.some((a: any) => a.id === activityId)) return t;
+          return { ...t, activities: t.activities.filter((a: any) => a.id !== activityId) };
+        })
+      );
+    };
 
-    on('checklist:created', ({ taskId, checklist, senderId }: any) => {
-      if (senderId === socket?.id) return;
-      setTasks(prev => prev.map(t => {
-        if (t.id !== taskId) return t;
-        if (t.checklists?.some((c: any) => c.id === checklist.id)) return t;
-        return { ...t, checklists: [...(t.checklists || []), checklist] };
-      }));
-    });
+    const hClCreated = ({ taskId, checklist, senderId }: any) => {
+      if (senderId === s.id) return;
+      setTasks((prev) =>
+        prev.map((t) => {
+          if (t.id !== taskId) return t;
+          if (t.checklists?.some((c: any) => c.id === checklist.id)) return t;
+          return { ...t, checklists: [...(t.checklists || []), checklist] };
+        })
+      );
+    };
 
-    on('checklist:deleted', ({ taskId, checklistId, senderId }: any) => {
-      if (senderId === socket?.id) return;
-      setTasks(prev => prev.map(t => {
-        if (t.id !== taskId) return t;
-        if (!t.checklists?.some((c: any) => c.id === checklistId)) return t;
-        return { ...t, checklists: t.checklists.filter((c: any) => c.id !== checklistId) };
-      }));
-    });
+    const hClDeleted = ({ taskId, checklistId, senderId }: any) => {
+      if (senderId === s.id) return;
+      setTasks((prev) =>
+        prev.map((t) => {
+          if (t.id !== taskId) return t;
+          if (!t.checklists?.some((c: any) => c.id === checklistId)) return t;
+          return { ...t, checklists: t.checklists.filter((c: any) => c.id !== checklistId) };
+        })
+      );
+    };
 
-    on('checklistItem:added', ({ taskId, checklistId, checklistItem, senderId }: any) => {
-      if (senderId === socket?.id) return;
-      setTasks(prev => prev.map(t => {
-        if (t.id !== taskId) return t;
-        return {
-          ...t,
-          checklists: t.checklists?.map((c: any) => {
-            if (c.id !== checklistId) return c;
-            if (c.items?.some((i: any) => i.id === checklistItem.id)) return c;
-            return { ...c, items: [...(c.items || []), checklistItem] };
-          })
-        };
-      }));
-    });
+    const hItemAdded = ({ taskId, checklistId, checklistItem, senderId }: any) => {
+      if (senderId === s.id) return;
+      setTasks((prev) =>
+        prev.map((t) => {
+          if (t.id !== taskId) return t;
+          return {
+            ...t,
+            checklists: t.checklists?.map((c: any) => {
+              if (c.id !== checklistId) return c;
+              if (c.items?.some((i: any) => i.id === checklistItem.id)) return c;
+              return { ...c, items: [...(c.items || []), checklistItem] };
+            })
+          };
+        })
+      );
+    };
 
-    on('checklistItem:updated', ({ taskId, checklistId, checklistItem, senderId }: any) => {
-      if (senderId === socket?.id) return;
-      setTasks(prev => prev.map(t => {
-        if (t.id !== taskId) return t;
-        return {
-          ...t,
-          checklists: t.checklists?.map((c: any) => {
-            if (c.id !== checklistId) return c;
-            return { ...c, items: c.items?.map((i: any) => i.id === checklistItem.id ? checklistItem : i) };
-          })
-        };
-      }));
-    });
+    const hItemUpdated = ({ taskId, checklistId, checklistItem, senderId }: any) => {
+      if (senderId === s.id) return;
+      setTasks((prev) =>
+        prev.map((t) => {
+          if (t.id !== taskId) return t;
+          return {
+            ...t,
+            checklists: t.checklists?.map((c: any) => {
+              if (c.id !== checklistId) return c;
+              return {
+                ...c,
+                items: c.items?.map((i: any) => (i.id === checklistItem.id ? checklistItem : i))
+              };
+            })
+          };
+        })
+      );
+    };
 
-    on('checklistItem:deleted', ({ taskId, checklistId, itemId }: any) => {
-      setTasks(prev => prev.map(t => {
-        if (t.id !== taskId) return t;
-        return {
-          ...t,
-          checklists: t.checklists?.map((c: any) => {
-            if (c.id !== checklistId) return c;
-            return { ...c, items: c.items?.filter((i: any) => i.id !== itemId) };
-          })
-        };
-      }));
-    });
+    const hItemDeleted = ({ taskId, checklistId, itemId }: any) => {
+      setTasks((prev) =>
+        prev.map((t) => {
+          if (t.id !== taskId) return t;
+          return {
+            ...t,
+            checklists: t.checklists?.map((c: any) => {
+              if (c.id !== checklistId) return c;
+              return { ...c, items: c.items?.filter((i: any) => i.id !== itemId) };
+            })
+          };
+        })
+      );
+    };
+
+    s.on('task:moved', hMoved);
+    s.on('task:updated', hUpdated);
+    s.on('task:created', hCreated);
+    s.on('task:deleted', hDeleted);
+    s.on('tasks:reordered', hReordered);
+    s.on('project:backgroundChanged', hBackground);
+    s.on('activity:added', hActivityAdded);
+    s.on('activity:edited', hActivityEdited);
+    s.on('activity:deleted', hActivityDeleted);
+    s.on('checklist:created', hClCreated);
+    s.on('checklist:deleted', hClDeleted);
+    s.on('checklistItem:added', hItemAdded);
+    s.on('checklistItem:updated', hItemUpdated);
+    s.on('checklistItem:deleted', hItemDeleted);
 
     return () => {
-      off('task:moved');
-      off('task:updated');
-      off('task:created');
-      off('task:deleted');
-      off('tasks:reordered');
-      off('project:backgroundChanged');
-      off('activity:added');
-      off('activity:edited');
-      off('activity:deleted');
-      off('checklist:created');
-      off('checklist:deleted');
-      off('checklistItem:added');
-      off('checklistItem:updated');
-      off('checklistItem:deleted');
+      s.off('task:moved', hMoved);
+      s.off('task:updated', hUpdated);
+      s.off('task:created', hCreated);
+      s.off('task:deleted', hDeleted);
+      s.off('tasks:reordered', hReordered);
+      s.off('project:backgroundChanged', hBackground);
+      s.off('activity:added', hActivityAdded);
+      s.off('activity:edited', hActivityEdited);
+      s.off('activity:deleted', hActivityDeleted);
+      s.off('checklist:created', hClCreated);
+      s.off('checklist:deleted', hClDeleted);
+      s.off('checklistItem:added', hItemAdded);
+      s.off('checklistItem:updated', hItemUpdated);
+      s.off('checklistItem:deleted', hItemDeleted);
     };
-  }, [on, off, projectId, socket?.id]);
+  }, [projectId, user?.id, myProjectMember]);
 
   const handleOptimisticUpdate = useCallback((taskId: string, newStatus: string) => {
     setTasks(prev => prev.map((t: any) => t.id === taskId ? { ...t, status: newStatus } : t));
@@ -452,6 +502,7 @@ export default function BoardPage() {
         projectId={projectId as string}
         onUpdate={fetchData}
         onDataChange={handleLocalTaskUpdate}
+        projectMembersList={members}
       />
 
       <CreateTaskModal

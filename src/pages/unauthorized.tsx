@@ -16,7 +16,7 @@ export default function UnauthorizedPage() {
         <div className="bg-red-50 p-6 rounded-full mb-6">
           <ShieldAlert className="h-16 w-16 text-red-500" />
         </div>
-        <h1 className="text-4xl font-extrabold text-slate-900 tracking-tight mb-3">Access Denied</h1>
+        <h1 className="text-4xl font-extrabold text-slate-900 tracking-tight mb-3">Truy cập bị từ chối</h1>
         <p className="text-slate-500 text-lg max-w-md mb-8">
           Bạn không có quyền truy cập trang này. Vui lòng liên hệ quản trị viên nếu bạn cho rằng đây là một sự nhầm lẫn.
         </p>
