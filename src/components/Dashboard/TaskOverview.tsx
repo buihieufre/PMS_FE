@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Calendar, ChevronLeft, ChevronRight, Clock, CheckCircle2, AlertCircle, PlayCircle, FileText, Ban } from 'lucide-react';
 import axiosInstance from '@/lib/axios';
 import Link from 'next/link';
+import { taskTitleToPlainText } from '@/lib/taskDescription';
 
 interface Task {
   id: string;
@@ -183,7 +184,7 @@ function TaskCard({ task }: { task: Task }) {
         <Icon className={`h-4 w-4 ${config.color}`} />
       </div>
       <h4 className="font-semibold text-slate-800 group-hover:text-slate-900 line-clamp-2 leading-snug mb-2">
-        {task.title}
+        {taskTitleToPlainText(task.title) || 'Không có tiêu đề'}
       </h4>
       <div className="flex items-center text-[11px] text-slate-500 space-x-3">
         <div className="flex items-center">

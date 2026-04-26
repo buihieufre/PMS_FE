@@ -40,6 +40,8 @@ import { getCoverStripStyle, isTaskCoverImageUrl } from '@/lib/boardBackgroundSt
 import { ExternalLink, Download, FileVideo, FileText, FileImage, FileCode, File as FileIcon } from 'lucide-react';
 import ConfirmModal from '@/components/Modal/ConfirmModal';
 import DescriptionEditorExpandModal from '@/components/Modal/DescriptionEditorExpandModal';
+import { CopyTaskCardForm, type CopyTaskBoardTaskRef } from './CopyTaskCardForm';
+import type { BoardTask } from './TaskCardFace';
 
 const EditorJs = dynamic(
   () => import('react-editor-js').then((mod) => mod.createReactEditorJS()),
@@ -102,6 +104,17 @@ interface TaskDetailModalProps {
   onClose: () => void;
   task: any;
   projectId: string;
+  projectName: string;
+  boardTasks: CopyTaskBoardTaskRef[];
+  onOptimisticTaskCopy?: (args: {
+    tempId: string;
+    title: string;
+    status: string;
+    position: number;
+    sourceTask: BoardTask;
+  }) => void;
+  onCopyTaskConfirm?: (tempId: string, task: BoardTask) => void;
+  onCopyTaskRollback?: (tempId: string, message?: string) => void;
   onUpdate: () => void;
   onDataChange?: (task: any) => void;
   /** Thành viên từ trang board — đồng bộ mention/danh sách ngay, không cần chỉ fetch trong modal */
@@ -160,7 +173,20 @@ function TaskCoverMenuButton({
   );
 }
 
-export default function TaskDetailModal({ isOpen, onClose, task, projectId, onUpdate, onDataChange, projectMembersList }: TaskDetailModalProps) {
+export default function TaskDetailModal({
+  isOpen,
+  onClose,
+  task,
+  projectId,
+  projectName,
+  boardTasks,
+  onOptimisticTaskCopy,
+  onCopyTaskConfirm,
+  onCopyTaskRollback,
+  onUpdate,
+  onDataChange,
+  projectMembersList,
+}: TaskDetailModalProps) {
   const [newComment, setNewComment] = useState('');
   const [localTask, setLocalTask] = useState<any>(task);
   const [nowMs, setNowMs] = useState<number>(Date.now());
@@ -198,6 +224,7 @@ export default function TaskDetailModal({ isOpen, onClose, task, projectId, onUp
   const [previewAttachment, setPreviewAttachment] = useState<any | null>(null);
   const [deletingAttachmentIds, setDeletingAttachmentIds] = useState<Set<string>>(new Set());
   const [checklistToDelete, setChecklistToDelete] = useState<{ id: string; title: string } | null>(null);
+  const [isCopyModalOpen, setIsCopyModalOpen] = useState(false);
   const [editingChecklistId, setEditingChecklistId] = useState<string | null>(null);
   const [editingChecklistTitle, setEditingChecklistTitle] = useState('');
   const [isSubmittingComment, setIsSubmittingComment] = useState(false);
@@ -270,6 +297,10 @@ export default function TaskDetailModal({ isOpen, onClose, task, projectId, onUp
   useEffect(() => {
     setShowFullActivityLog(false);
   }, [task?.id]);
+
+  useEffect(() => {
+    setIsCopyModalOpen(false);
+  }, [task?.id, isOpen]);
 
   const updateMentionState = (value: string, caretPos: number) => {
     const beforeCaret = value.slice(0, caretPos);
@@ -2367,7 +2398,11 @@ export default function TaskDetailModal({ isOpen, onClose, task, projectId, onUp
                 <button className="w-full px-4 py-3 bg-white border border-slate-100 hover:bg-slate-50 text-slate-600 rounded-2xl text-xs font-black flex items-center transition-all shadow-sm">
                    Di chuyển thẻ
                 </button>
-                <button className="w-full px-4 py-3 bg-white border border-slate-100 hover:bg-slate-50 text-slate-600 rounded-2xl text-xs font-black flex items-center transition-all shadow-sm">
+                <button
+                  type="button"
+                  onClick={() => setIsCopyModalOpen(true)}
+                  className="w-full px-4 py-3 bg-white border border-slate-100 hover:bg-slate-50 text-slate-600 rounded-2xl text-xs font-black flex items-center transition-all shadow-sm"
+                >
                    Sao chép thẻ
                 </button>
                 <button 
@@ -2489,6 +2524,34 @@ export default function TaskDetailModal({ isOpen, onClose, task, projectId, onUp
         setDescriptionExpandOpen(false);
       }}
     />
+
+    {isCopyModalOpen &&
+      typeof window !== 'undefined' &&
+      createPortal(
+        <div
+          className="fixed inset-0 z-[130] flex items-start justify-center bg-slate-900/55 backdrop-blur-[2px] p-4 pt-[56px]"
+          onClick={() => setIsCopyModalOpen(false)}
+          role="presentation"
+        >
+          <div className="mt-4 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+            <CopyTaskCardForm
+              mode="modal"
+              projectId={projectId}
+              projectName={projectName}
+              sourceTask={localTask}
+              sourceTaskId={localTask.id}
+              initialTitle={localTask.title || ''}
+              initialStatus={localTask.status}
+              boardTasks={boardTasks}
+              onClose={() => setIsCopyModalOpen(false)}
+              onOptimisticTaskCopy={onOptimisticTaskCopy}
+              onCopyTaskConfirm={onCopyTaskConfirm}
+              onCopyTaskRollback={onCopyTaskRollback}
+            />
+          </div>
+        </div>,
+        document.body
+      )}
     </>
   );
 }

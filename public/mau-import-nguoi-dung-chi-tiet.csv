@@ -1,0 +1,13 @@
+email,displayName,roleName,departmentName
+nv.an@congty.com,Nguyễn Văn An,EMPLOYEE,Phòng Kỹ thuật
+tran.bich@congty.com,Trần Thị Bích,LEAD,Phòng Kỹ thuật
+le.hoang@congty.com,Lê Hoàng Dũng,EMPLOYEE,
+hop.dong@partner.vn,Nguyễn Hợp Đồng,FREELANCER,
+dai.dien@khachhang.vn,Đại diện Công ty ABC,CLIENT,
+pham.owner@congty.com,Phạm Minh Owner,OWNER,
+pham.dung@congty.com,"Phạm Thị Dung (Bộ phận CNTT)",EMPLOYEE,"Phòng Công nghệ thông tin"
+intern.moi@congty.com,Thực tập sinh Hoàng Mai,EMPLOYEE,
+lead.khac@congty.com,Hoàng Văn Trưởng nhóm,LEAD,
+client2@duan.vn,Chị Lan Đầu mối dự án,CLIENT,
+employee.hn@congty.com,Nguyễn Hà Nội Chi nhánh,EMPLOYEE,Phòng Kinh doanh
+freelancer.design@mail.com,Designer Phạm Linh,FREELANCER,

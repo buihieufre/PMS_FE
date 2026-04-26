@@ -23,6 +23,54 @@ import { useAuthStore } from '@/store/authStore';
 import { shouldShowTaskOnBoard } from '@/lib/boardTaskVisibility';
 import { getBoardBackgroundStyle, type TaskCoverMode } from '@/lib/boardBackgroundStyle';
 
+function insertCopiedTaskInColumn(prev: any[], columnStatus: string, position1Based: number, task: any): any[] {
+  const insertAt = Math.max(0, position1Based - 1);
+  const out: any[] = [];
+  let colDone = false;
+  for (const t of prev) {
+    if (t.status !== columnStatus) {
+      out.push(t);
+      continue;
+    }
+    if (!colDone) {
+      const inCol = prev.filter((x) => x.status === columnStatus);
+      const col = [...inCol];
+      col.splice(Math.min(insertAt, col.length), 0, task);
+      out.push(...col);
+      colDone = true;
+      continue;
+    }
+  }
+  if (!colDone) {
+    out.push(task);
+  }
+  return out;
+}
+
+function buildOptimisticCopyTask(source: any, tempId: string, title: string, status: string): any {
+  const checklists = Array.isArray(source?.checklists)
+    ? source.checklists.map((cl: any) => ({
+        ...cl,
+        id: `${tempId}-cl-${cl.id}`,
+        items: (cl.items || []).map((it: any) => ({
+          ...it,
+          id: `${tempId}-it-${it.id}`,
+          isDone: false,
+        })),
+      }))
+    : [];
+  return {
+    ...source,
+    id: tempId,
+    title,
+    status,
+    activities: [],
+    attachments: [],
+    checklists,
+    subTasks: [],
+  };
+}
+
 export default function BoardPage() {
   const router = useRouter();
   const { projectId: projectIdParam } = router.query;
@@ -369,6 +417,39 @@ export default function BoardPage() {
     });
   }, []);
 
+  const handleOptimisticTaskCopy = useCallback(
+    (args: { tempId: string; title: string; status: string; position: number; sourceTask: any }) => {
+      const { tempId, title, status, position, sourceTask } = args;
+      const optimistic = buildOptimisticCopyTask(sourceTask, tempId, title, status);
+      lastTaskUpdatesRef.current[tempId] = Date.now();
+      setTasks((prev) => insertCopiedTaskInColumn(prev, status, position, optimistic));
+    },
+    []
+  );
+
+  const handleCopyTaskConfirm = useCallback((tempId: string, serverTask: any) => {
+    const now = Date.now();
+    lastTaskUpdatesRef.current[serverTask.id] = now;
+    setTasks((prev) => {
+      const mapped = prev.map((t) => (t.id === tempId ? serverTask : t));
+      const seen = new Set<string>();
+      return mapped.filter((t) => {
+        if (seen.has(t.id)) return false;
+        seen.add(t.id);
+        return true;
+      });
+    });
+    setSelectedTask((prev: any) => (prev?.id === tempId ? serverTask : prev));
+  }, []);
+
+  const handleCopyTaskRollback = useCallback((tempId: string, message?: string) => {
+    setTasks((prev) => prev.filter((t) => t.id !== tempId));
+    setSelectedTask((prev: any) => (prev?.id === tempId ? null : prev));
+    if (message) {
+      toast.error(message);
+    }
+  }, []);
+
   if (loading && !project) {
     return (
       <MainLayout>
@@ -500,6 +581,7 @@ export default function BoardPage() {
         <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
            <ProjectBoard 
               projectId={projectId!} 
+              projectName={project?.name || 'Bảng dự án'}
               tasks={tasks}
               searchTerm={boardSearch}
               onTaskUpdate={fetchData} 
@@ -507,6 +589,9 @@ export default function BoardPage() {
               onOptimisticTaskPatch={handleOptimisticTaskPatch}
               onUpdateTaskAppearance={handleUpdateTaskAppearance}
               onOptimisticReorder={handleOptimisticReorder}
+              onOptimisticTaskCopy={handleOptimisticTaskCopy}
+              onCopyTaskConfirm={handleCopyTaskConfirm}
+              onCopyTaskRollback={handleCopyTaskRollback}
               onTaskClick={(task) => setSelectedTask(task)}
               onAddTask={(status) => {
                 setPreselectedStatus(status);
@@ -523,6 +608,11 @@ export default function BoardPage() {
         onClose={() => setSelectedTask(null)}
         task={selectedTask}
         projectId={projectId as string}
+        projectName={project?.name || 'Bảng dự án'}
+        boardTasks={tasks.map((t) => ({ id: t.id, status: t.status }))}
+        onOptimisticTaskCopy={handleOptimisticTaskCopy}
+        onCopyTaskConfirm={handleCopyTaskConfirm}
+        onCopyTaskRollback={handleCopyTaskRollback}
         onUpdate={fetchData}
         onDataChange={handleLocalTaskUpdate}
         projectMembersList={members}

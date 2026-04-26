@@ -1,11 +1,13 @@
 import { useState, useMemo } from 'react';
-import { Search, ChevronLeft, ChevronRight, MoreHorizontal, Plus, Clock } from 'lucide-react';
+import { Search, ChevronLeft, ChevronRight, MoreHorizontal, Plus } from 'lucide-react';
+import { taskTitleToPlainText } from '@/lib/taskDescription';
 
 interface Task {
   id: string;
   title: string;
   status: string;
   dueDate?: string;
+  projectId?: string;
   project: { name: string };
 }
 
@@ -219,7 +221,7 @@ export default function DashboardCalendar({ tasks = [], onTaskClick, onAddTask }
                   >
                     <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${STATUS_COLORS[task.status] || 'bg-slate-400'}`} />
                     <span className="text-[10px] font-medium text-slate-600 line-clamp-1 group-hover/chip:text-slate-900 transition-colors">
-                      {task.title}
+                      {taskTitleToPlainText(task.title, 80) || '—'}
                     </span>
                   </div>
                 ))}

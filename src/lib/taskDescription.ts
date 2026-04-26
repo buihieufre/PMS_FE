@@ -107,3 +107,8 @@ export function taskDescriptionToPlainText(raw: string | null | undefined, maxLe
   if (out.length <= maxLen) return out;
   return `${out.slice(0, maxLen)}…`;
 }
+
+/** Tiêu đề thẻ: cùng định dạng có thể là JSON Editor.js hoặc chữ thuần. */
+export function taskTitleToPlainText(raw: string | null | undefined, maxLen = 160): string {
+  return taskDescriptionToPlainText(raw, maxLen);
+}

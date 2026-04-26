@@ -15,6 +15,8 @@ import {
 } from 'lucide-react';
 import { TaskAppearancePopover } from './TaskAppearancePopover';
 import type { TaskCoverMode } from '@/lib/boardBackgroundStyle';
+import { CopyTaskCardForm, type CopyTaskBoardTaskRef } from './CopyTaskCardForm';
+import type { BoardTask } from './TaskCardFace';
 import { toast } from 'sonner';
 import axiosInstance from '@/lib/axios';
 
@@ -27,10 +29,11 @@ const COLUMN_OPTIONS: { id: string; title: string }[] = [
   { id: 'APPROVED', title: 'Đã duyệt' },
 ];
 
-export type QuickMenuView = 'actions' | 'cover' | 'labels' | 'dates' | 'move';
+export type QuickMenuView = 'actions' | 'cover' | 'labels' | 'dates' | 'move' | 'copy';
 
 type TaskLite = {
   id: string;
+  title: string;
   status: string;
   background?: string | null;
   textColor?: string | null;
@@ -46,6 +49,8 @@ type Props = {
   onClose: () => void;
   task: TaskLite;
   projectId: string;
+  projectName: string;
+  boardTasks: CopyTaskBoardTaskRef[];
   /** overlay Trello: nền tối + thẻ + menu — style menu dọc */
   layout?: 'default' | 'trello';
   onOpenCard: () => void;
@@ -54,6 +59,16 @@ type Props = {
   onMove: (status: string) => void;
   onArchive: () => void;
   onSaveDates: (startDate: string | null, dueDate: string | null) => void;
+  copySourceTask: BoardTask;
+  onOptimisticTaskCopy?: (args: {
+    tempId: string;
+    title: string;
+    status: string;
+    position: number;
+    sourceTask: BoardTask;
+  }) => void;
+  onCopyTaskConfirm?: (tempId: string, task: BoardTask) => void;
+  onCopyTaskRollback?: (tempId: string, message?: string) => void;
 };
 
 function toLocalDateInput(iso: string | null | undefined): string {
@@ -149,6 +164,8 @@ export function TaskCardQuickMenu({
   onClose,
   task,
   projectId,
+  projectName,
+  boardTasks,
   layout = 'default',
   onOpenCard,
   onAppearance,
@@ -156,6 +173,10 @@ export function TaskCardQuickMenu({
   onMove,
   onArchive,
   onSaveDates,
+  copySourceTask,
+  onOptimisticTaskCopy,
+  onCopyTaskConfirm,
+  onCopyTaskRollback,
 }: Props) {
   const isTrello = layout === 'trello';
 
@@ -227,7 +248,7 @@ export function TaskCardQuickMenu({
             { k: 'cover' as const, icon: ImageIcon, label: 'Thay đổi bìa', onClick: () => onViewChange('cover') },
             { k: 'dates' as const, icon: Calendar, label: 'Chỉnh sửa ngày', onClick: () => onViewChange('dates') },
             { k: 'move' as const, icon: ArrowRight, label: 'Di chuyển', onClick: () => onViewChange('move') },
-            { k: 'copy' as const, icon: Copy, label: 'Sao chép thẻ', onClick: () => toast.info('Sao chép thẻ — tính năng sắp có') },
+            { k: 'copy' as const, icon: Copy, label: 'Sao chép thẻ', onClick: () => onViewChange('copy') },
             { k: 'link' as const, icon: Link2, label: 'Sao chép liên kết', onClick: () => void copyCardLink() },
             { k: 'arch' as const, icon: Archive, label: 'Lưu trữ', onClick: onArchive },
           ].map(({ k, icon: Icon, label, onClick }) => (
@@ -337,6 +358,26 @@ export function TaskCardQuickMenu({
           ))}
         </div>
       </div>
+    );
+  }
+
+  if (view === 'copy') {
+    return (
+      <CopyTaskCardForm
+        mode="quick"
+        projectId={projectId}
+        projectName={projectName}
+        sourceTask={copySourceTask}
+        sourceTaskId={task.id}
+        initialTitle={task.title}
+        initialStatus={task.status}
+        boardTasks={boardTasks}
+        onBack={() => onViewChange('actions')}
+        onClose={onClose}
+        onOptimisticTaskCopy={onOptimisticTaskCopy}
+        onCopyTaskConfirm={onCopyTaskConfirm}
+        onCopyTaskRollback={onCopyTaskRollback}
+      />
     );
   }
 

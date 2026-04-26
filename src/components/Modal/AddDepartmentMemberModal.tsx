@@ -49,8 +49,8 @@ export default function AddDepartmentMemberModal({
     (async () => {
       setLoading(true);
       try {
-        const res = await axiosInstance.get<UserRow[]>('/users');
-        if (!cancelled) setUsers(res.data || []);
+        const res = await axiosInstance.get<{ data: UserRow[] }>('/users', { params: { picker: 1 } });
+        if (!cancelled) setUsers(res.data?.data || []);
       } catch {
         if (!cancelled) toast.error('Không tải được danh sách người dùng');
       } finally {

@@ -22,6 +22,8 @@ type Task = BoardTask;
 
 interface ProjectBoardProps {
   projectId: string;
+  /** Tên bảng (dự án) — hiển thị khi sao chép thẻ */
+  projectName: string;
   tasks: Task[];
   /** Lọc theo tiêu đề; kiểm soát từ trang board */
   searchTerm?: string;
@@ -31,6 +33,15 @@ interface ProjectBoardProps {
   onOptimisticReorder?: (taskIds: string[], status: string) => void;
   /** Cập nhật tối ưu (nhãn, ngày, lưu trữ) đồng bộ cùng board.tsx / lastTaskUpdatesRef */
   onOptimisticTaskPatch?: (taskId: string, patch: Record<string, unknown>) => void;
+  onOptimisticTaskCopy?: (args: {
+    tempId: string;
+    title: string;
+    status: string;
+    position: number;
+    sourceTask: Task;
+  }) => void;
+  onCopyTaskConfirm?: (tempId: string, task: Task) => void;
+  onCopyTaskRollback?: (tempId: string, message?: string) => void;
   onTaskClick: (task: Task) => void;
   onAddTask: (status: string) => void;
 }
@@ -105,7 +116,7 @@ const TaskCard = memo(
     prev.isQuickEditSource === next.isQuickEditSource
 );
 
-export default function ProjectBoard({ projectId, tasks, searchTerm = '', onTaskUpdate, onOptimisticUpdate, onUpdateTaskAppearance, onOptimisticReorder, onOptimisticTaskPatch, onTaskClick, onAddTask }: ProjectBoardProps) {
+export default function ProjectBoard({ projectId, projectName, tasks, searchTerm = '', onTaskUpdate, onOptimisticUpdate, onUpdateTaskAppearance, onOptimisticReorder, onOptimisticTaskPatch, onOptimisticTaskCopy, onCopyTaskConfirm, onCopyTaskRollback, onTaskClick, onAddTask }: ProjectBoardProps) {
   const { emit, socket } = useSocket(projectId);
   const { user } = useAuthStore();
   const [localTasks, setLocalTasks] = useState<Task[]>(tasks);
@@ -354,6 +365,7 @@ export default function ProjectBoard({ projectId, tasks, searchTerm = '', onTask
               onClose={closeMenu}
               task={{
                 id: quickMenuTask.id,
+                title: quickMenuTask.title,
                 status: quickMenuTask.status,
                 background: quickMenuTask.background,
                 textColor: quickMenuTask.textColor,
@@ -363,6 +375,8 @@ export default function ProjectBoard({ projectId, tasks, searchTerm = '', onTask
                 dueDate: quickMenuTask.dueDate
               }}
               projectId={projectId}
+              projectName={projectName}
+              boardTasks={localTasks.map((t) => ({ id: t.id, status: t.status }))}
               onOpenCard={() => {
                 closeMenu();
                 onTaskClick(quickMenuTask);
@@ -398,6 +412,10 @@ export default function ProjectBoard({ projectId, tasks, searchTerm = '', onTask
                 emitTaskUpdate(activeMenuId, { archived: true });
                 closeMenu();
               }}
+              copySourceTask={quickMenuTask}
+              onOptimisticTaskCopy={onOptimisticTaskCopy}
+              onCopyTaskConfirm={onCopyTaskConfirm}
+              onCopyTaskRollback={onCopyTaskRollback}
             />
           </div>
         </div>,
