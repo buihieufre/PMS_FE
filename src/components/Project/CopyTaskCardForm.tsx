@@ -11,9 +11,12 @@ export const COPY_TASK_COLUMN_OPTIONS: { id: string; title: string }[] = [
   { id: 'DELAYED', title: 'Tạm hoãn' },
   { id: 'DONE', title: 'Hoàn thành' },
   { id: 'APPROVED', title: 'Đã duyệt' },
+  { id: 'REJECTED', title: 'Từ chối' },
 ];
 
-export type CopyTaskBoardTaskRef = { id: string; status: string };
+export type CopyTaskBoardTaskRef = { id: string; status: string; boardListId?: string | null };
+
+type BoardListRef = { id: string; name: string; mapsToStatus: string };
 
 type Props = {
   projectId: string;
@@ -22,6 +25,8 @@ type Props = {
   sourceTaskId: string;
   initialTitle: string;
   initialStatus: string;
+  /** Khi có — chọn cột theo boardListId */
+  boardLists?: BoardListRef[];
   boardTasks: CopyTaskBoardTaskRef[];
   mode: 'quick' | 'modal';
   onBack?: () => void;
@@ -30,6 +35,7 @@ type Props = {
     tempId: string;
     title: string;
     status: string;
+    boardListId: string | null;
     position: number;
     sourceTask: BoardTask;
   }) => void;
@@ -44,6 +50,7 @@ export function CopyTaskCardForm({
   sourceTaskId,
   initialTitle,
   initialStatus,
+  boardLists,
   boardTasks,
   mode,
   onBack,
@@ -52,8 +59,23 @@ export function CopyTaskCardForm({
   onCopyTaskConfirm,
   onCopyTaskRollback,
 }: Props) {
+  const useBoardLists = Boolean(boardLists && boardLists.length > 0);
+  const lists = boardLists || [];
+
+  const initialListId = (): string => {
+    if (!useBoardLists) return '';
+    if (sourceTask.boardListId && lists.some((l) => l.id === sourceTask.boardListId)) {
+      return sourceTask.boardListId;
+    }
+    const match = lists.find((l) => l.mapsToStatus === initialStatus);
+    return match?.id ?? lists[0].id;
+  };
+
   const [title, setTitle] = useState(initialTitle);
-  const [status, setStatus] = useState(initialStatus);
+  const [status, setStatus] = useState(
+    COPY_TASK_COLUMN_OPTIONS.some((c) => c.id === initialStatus) ? initialStatus : 'PENDING'
+  );
+  const [targetListId, setTargetListId] = useState(() => initialListId());
   const [position, setPosition] = useState(1);
   const [submitting, setSubmitting] = useState(false);
   const submitLock = useRef(false);
@@ -63,18 +85,36 @@ export function CopyTaskCardForm({
     setStatus(
       COPY_TASK_COLUMN_OPTIONS.some((c) => c.id === initialStatus) ? initialStatus : 'PENDING'
     );
-  }, [initialTitle, initialStatus, sourceTaskId]);
+    if (useBoardLists) {
+      setTargetListId(initialListId());
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reset theo thẻ nguồn / props
+  }, [initialTitle, initialStatus, sourceTaskId, useBoardLists, sourceTask.boardListId]);
 
-  const countInColumn = useMemo(
-    () => boardTasks.filter((t) => t.status === status).length,
-    [boardTasks, status]
-  );
+  const resolvedMapsToStatus = useMemo(() => {
+    if (useBoardLists) {
+      return lists.find((l) => l.id === targetListId)?.mapsToStatus ?? 'PENDING';
+    }
+    return status;
+  }, [useBoardLists, lists, targetListId, status]);
+
+  const countInColumn = useMemo(() => {
+    if (useBoardLists) {
+      const ms = resolvedMapsToStatus;
+      return boardTasks.filter(
+        (t) =>
+          (t.boardListId && t.boardListId === targetListId) ||
+          (!t.boardListId && t.status === ms)
+      ).length;
+    }
+    return boardTasks.filter((t) => t.status === status).length;
+  }, [boardTasks, useBoardLists, targetListId, resolvedMapsToStatus, status]);
 
   const maxPosition = countInColumn + 1;
 
   useEffect(() => {
     setPosition(maxPosition);
-  }, [status, maxPosition, sourceTaskId]);
+  }, [status, targetListId, maxPosition, sourceTaskId, useBoardLists]);
 
   const submit = () => {
     const trimmed = title.trim();
@@ -91,10 +131,14 @@ export function CopyTaskCardForm({
     setSubmitting(true);
 
     const tempId = `temp-copy-${crypto.randomUUID()}`;
+    const copyStatus = resolvedMapsToStatus;
+    const copyListId = useBoardLists ? targetListId : null;
+
     onOptimisticTaskCopy({
       tempId,
       title: trimmed,
-      status,
+      status: copyStatus,
+      boardListId: copyListId,
       position,
       sourceTask,
     });
@@ -103,12 +147,20 @@ export function CopyTaskCardForm({
     submitLock.current = false;
     setSubmitting(false);
 
-    const postCopy = (force: boolean) =>
-      axiosInstance.post(`/projects/${projectId}/tasks/${sourceTaskId}/copy${force ? '?force=true' : ''}`, {
+    const postCopy = (force: boolean) => {
+      const body: Record<string, unknown> = {
         title: trimmed,
-        status,
         position,
-      });
+        status: copyStatus,
+      };
+      if (useBoardLists && copyListId) {
+        body.boardListId = copyListId;
+      }
+      return axiosInstance.post(
+        `/projects/${projectId}/tasks/${sourceTaskId}/copy${force ? '?force=true' : ''}`,
+        body
+      );
+    };
 
     void (async () => {
       try {
@@ -184,11 +236,12 @@ export function CopyTaskCardForm({
     </div>
   );
 
-  const fieldClass = 'w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500';
+  const fieldClass =
+    'w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500';
   const labelClass = 'mb-1 block text-[10px] font-bold uppercase tracking-wide text-slate-500';
 
   const body = (
-    <div className={mode === 'modal' ? 'p-4 space-y-4' : 'space-y-4 p-3'}>
+    <div className={mode === 'modal' ? 'space-y-4 p-4' : 'space-y-4 p-3'}>
       <div>
         <label className={labelClass}>Tên</label>
         <textarea
@@ -211,13 +264,27 @@ export function CopyTaskCardForm({
           <div className="flex gap-2">
             <div className="min-w-0 flex-[2]">
               <label className={labelClass}>Danh sách</label>
-              <select value={status} onChange={(e) => setStatus(e.target.value)} className={fieldClass}>
-                {COPY_TASK_COLUMN_OPTIONS.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.title}
-                  </option>
-                ))}
-              </select>
+              {useBoardLists ? (
+                <select
+                  value={targetListId}
+                  onChange={(e) => setTargetListId(e.target.value)}
+                  className={fieldClass}
+                >
+                  {lists.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <select value={status} onChange={(e) => setStatus(e.target.value)} className={fieldClass}>
+                  {COPY_TASK_COLUMN_OPTIONS.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.title}
+                    </option>
+                  ))}
+                </select>
+              )}
             </div>
             <div className="min-w-0 flex-1">
               <label className={labelClass}>Vị trí</label>

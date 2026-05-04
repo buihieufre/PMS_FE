@@ -29,6 +29,7 @@ export default function DescriptionEditorExpandModal({
   zIndexClass = 'z-[200]',
 }: Props) {
   const [sessionKey, setSessionKey] = useState(0);
+  const [canRenderEditor, setCanRenderEditor] = useState(false);
   const editorRef = useRef<any>(null);
   const tools = useMemo(() => getEditorTools(), []);
   const defaultData = useMemo(
@@ -48,6 +49,23 @@ export default function DescriptionEditorExpandModal({
     }
     prevOpen.current = isOpen;
   }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      setCanRenderEditor(false);
+      editorRef.current = null;
+      return;
+    }
+    let raf = 0;
+    raf = window.requestAnimationFrame(() => {
+      setCanRenderEditor(true);
+    });
+    return () => {
+      window.cancelAnimationFrame(raf);
+      setCanRenderEditor(false);
+      editorRef.current = null;
+    };
+  }, [isOpen, sessionKey]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -110,13 +128,15 @@ export default function DescriptionEditorExpandModal({
 
         <div className="min-h-0 flex-1 overflow-y-auto">
           <div className="prose prose-slate max-w-none px-4 py-4 sm:px-6 sm:py-5 min-h-[50vh]">
-            <EditorJs
-              key={sessionKey}
-              onInitialize={handleInit}
-              defaultValue={defaultData}
-              placeholder="Bắt đầu soạn mô tả…"
-              tools={tools as any}
-            />
+            {canRenderEditor ? (
+              <EditorJs
+                key={sessionKey}
+                onInitialize={handleInit}
+                defaultValue={defaultData}
+                placeholder="Bắt đầu soạn mô tả…"
+                tools={tools as any}
+              />
+            ) : null}
           </div>
         </div>
 

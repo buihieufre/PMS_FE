@@ -106,10 +106,13 @@ interface TaskDetailModalProps {
   projectId: string;
   projectName: string;
   boardTasks: CopyTaskBoardTaskRef[];
+  /** Cột bảng — khi có thì form sao chép chọn theo danh sách */
+  boardListsForCopy?: { id: string; name: string; mapsToStatus: string }[];
   onOptimisticTaskCopy?: (args: {
     tempId: string;
     title: string;
     status: string;
+    boardListId: string | null;
     position: number;
     sourceTask: BoardTask;
   }) => void;
@@ -119,6 +122,10 @@ interface TaskDetailModalProps {
   onDataChange?: (task: any) => void;
   /** Thành viên từ trang board — đồng bộ mention/danh sách ngay, không cần chỉ fetch trong modal */
   projectMembersList?: any[];
+  /** User.id người tạo bản ghi Project — chỉ người này được gán thẻ cho thành viên khác */
+  projectOwnerId?: string | null;
+  /** Sao chép thẻ — đồng bộ quyền tạo thẻ (chủ dự án / admin) */
+  canDuplicateCard?: boolean;
 }
 
 function TaskCoverMenuButton({
@@ -180,12 +187,15 @@ export default function TaskDetailModal({
   projectId,
   projectName,
   boardTasks,
+  boardListsForCopy,
   onOptimisticTaskCopy,
   onCopyTaskConfirm,
   onCopyTaskRollback,
   onUpdate,
   onDataChange,
   projectMembersList,
+  projectOwnerId,
+  canDuplicateCard = true,
 }: TaskDetailModalProps) {
   const [newComment, setNewComment] = useState('');
   const [localTask, setLocalTask] = useState<any>(task);
@@ -195,6 +205,8 @@ export default function TaskDetailModal({
   const [isEditingDesc, setIsEditingDesc] = useState(false);
   const [editedDesc, setEditedDesc] = useState(task?.description || '');
   const [descEditSessionKey, setDescEditSessionKey] = useState(0);
+  const [canRenderDescEditor, setCanRenderDescEditor] = useState(false);
+  const [canRenderDescViewer, setCanRenderDescViewer] = useState(false);
   const [descriptionExpandOpen, setDescriptionExpandOpen] = useState(false);
   const descEditorRef = useRef<any>(null);
   const descEditorTools = useMemo(() => getEditorTools(), []);
@@ -225,6 +237,10 @@ export default function TaskDetailModal({
   const [deletingAttachmentIds, setDeletingAttachmentIds] = useState<Set<string>>(new Set());
   const [checklistToDelete, setChecklistToDelete] = useState<{ id: string; title: string } | null>(null);
   const [isCopyModalOpen, setIsCopyModalOpen] = useState(false);
+
+  useEffect(() => {
+    if (!canDuplicateCard) setIsCopyModalOpen(false);
+  }, [canDuplicateCard]);
   const [editingChecklistId, setEditingChecklistId] = useState<string | null>(null);
   const [editingChecklistTitle, setEditingChecklistTitle] = useState('');
   const [isSubmittingComment, setIsSubmittingComment] = useState(false);
@@ -236,6 +252,9 @@ export default function TaskDetailModal({
   const [activeMentionIndex, setActiveMentionIndex] = useState(0);
   const { emit, socket } = useSocket(projectId);
   const { user } = useAuthStore();
+  const canAssignOthers = Boolean(
+    user?.id && projectOwnerId != null && String(user.id) === String(projectOwnerId)
+  );
   const pendingUpdatesRef = useRef<any>({});
   const updateTimeoutRef = useRef<any>(null);
   const lastUpdateRef = useRef<number>(0);
@@ -244,6 +263,22 @@ export default function TaskDetailModal({
   const commentTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const lastCommentSubmitRef = useRef<{ content: string; at: number } | null>(null);
   const EMOJI_OPTIONS = ['👍', '❤️', '😂', '👀', '🎉'];
+  const boardListOptions = useMemo(() => boardListsForCopy || [], [boardListsForCopy]);
+  const selectedBoardList = useMemo(
+    () => boardListOptions.find((list) => list.id === localTask?.boardListId) || null,
+    [boardListOptions, localTask?.boardListId]
+  );
+  const statusLabel = useMemo(() => {
+    const status = localTask?.status;
+    if (status === 'PENDING') return 'Chờ xử lý';
+    if (status === 'IN_PROGRESS') return 'Đang thực hiện';
+    if (status === 'DONE') return 'Hoàn thành';
+    if (status === 'WAITING_FOR_DOCUMENT') return 'Chờ tài liệu';
+    if (status === 'DELAYED') return 'Tạm hoãn';
+    if (status === 'APPROVED') return 'Đã duyệt';
+    if (status === 'REJECTED') return 'Từ chối';
+    return status || '';
+  }, [localTask?.status]);
 
   const toMentionHandle = (member: any) => {
     const employeeCode = String(member?.user?.employeeCode || '').trim().replace(/^@/, '');
@@ -301,6 +336,38 @@ export default function TaskDetailModal({
   useEffect(() => {
     setIsCopyModalOpen(false);
   }, [task?.id, isOpen]);
+
+  useEffect(() => {
+    if (!isOpen || !isEditingDesc) {
+      setCanRenderDescEditor(false);
+      descEditorRef.current = null;
+      return;
+    }
+    let raf = 0;
+    raf = window.requestAnimationFrame(() => {
+      setCanRenderDescEditor(true);
+    });
+    return () => {
+      window.cancelAnimationFrame(raf);
+      setCanRenderDescEditor(false);
+      descEditorRef.current = null;
+    };
+  }, [isOpen, isEditingDesc, descEditSessionKey]);
+
+  useEffect(() => {
+    if (!isOpen || isEditingDesc) {
+      setCanRenderDescViewer(false);
+      return;
+    }
+    let raf = 0;
+    raf = window.requestAnimationFrame(() => {
+      setCanRenderDescViewer(true);
+    });
+    return () => {
+      window.cancelAnimationFrame(raf);
+      setCanRenderDescViewer(false);
+    };
+  }, [isOpen, isEditingDesc, localTask?.id, localTask?.description]);
 
   const updateMentionState = (value: string, caretPos: number) => {
     const beforeCaret = value.slice(0, caretPos);
@@ -1398,8 +1465,17 @@ export default function TaskDetailModal({
             <div className="mb-4 sm:mb-5">
               <div className="relative inline-block">
                 <select
-                  value={localTask.status}
-                  onChange={(e) => handleUpdateTask({ status: e.target.value })}
+                  value={localTask.boardListId || localTask.status}
+                  onChange={(e) => {
+                    if (boardListOptions.length > 0) {
+                      const chosen = boardListOptions.find((list) => list.id === e.target.value);
+                      if (chosen) {
+                        handleUpdateTask({ status: chosen.mapsToStatus, boardListId: chosen.id });
+                        return;
+                      }
+                    }
+                    handleUpdateTask({ status: e.target.value, boardListId: null });
+                  }}
                   className="cursor-pointer appearance-none rounded-xl border border-slate-200/90 bg-white px-3 py-1.5 text-[11px] font-black uppercase tracking-wider text-slate-600 shadow-sm outline-none transition-all hover:bg-slate-50"
                   style={{
                     backgroundImage:
@@ -1410,12 +1486,22 @@ export default function TaskDetailModal({
                     paddingRight: '2rem',
                   }}
                 >
-                  <option value="PENDING">Chờ xử lý</option>
-                  <option value="IN_PROGRESS">Đang thực hiện</option>
-                  <option value="DONE">Hoàn thành</option>
-                  <option value="WAITING_FOR_DOCUMENT">Chờ tài liệu</option>
-                  <option value="DELAYED">Tạm hoãn</option>
-                  <option value="APPROVED">Đã duyệt</option>
+                  {boardListOptions.length > 0 ? (
+                    boardListOptions.map((list) => (
+                      <option key={list.id} value={list.id}>
+                        {list.name}
+                      </option>
+                    ))
+                  ) : (
+                    <>
+                      <option value="PENDING">Chờ xử lý</option>
+                      <option value="IN_PROGRESS">Đang thực hiện</option>
+                      <option value="DONE">Hoàn thành</option>
+                      <option value="WAITING_FOR_DOCUMENT">Chờ tài liệu</option>
+                      <option value="DELAYED">Tạm hoãn</option>
+                      <option value="APPROVED">Đã duyệt</option>
+                    </>
+                  )}
                 </select>
               </div>
             </div>
@@ -1453,19 +1539,7 @@ export default function TaskDetailModal({
                 <div className="mt-1.5 pl-0.5 text-xs font-bold text-slate-500">
                   trong danh sách{' '}
                   <span className="cursor-pointer text-slate-500 underline transition-colors hover:text-slate-700">
-                    {localTask.status === 'PENDING'
-                      ? 'Chờ xử lý'
-                      : localTask.status === 'IN_PROGRESS'
-                        ? 'Đang thực hiện'
-                        : localTask.status === 'DONE'
-                          ? 'Hoàn thành'
-                          : localTask.status === 'WAITING_FOR_DOCUMENT'
-                            ? 'Chờ tài liệu'
-                            : localTask.status === 'DELAYED'
-                              ? 'Tạm hoãn'
-                              : localTask.status === 'APPROVED'
-                                ? 'Đã duyệt'
-                                : localTask.status}
+                    {selectedBoardList?.name || statusLabel}
                   </span>
                 </div>
               </div>
@@ -1499,6 +1573,7 @@ export default function TaskDetailModal({
                         taskId={localTask.id}
                         projectMembers={projectMembers}
                         selectedAssignees={localTask.assignees || []}
+                        allowChange={canAssignOthers}
                         onUpdate={(newAssigneeIds, updatedAssignees) => {
                            // Let handleUpdateTask manage both the optimistic state update AND the socket emit
                            handleUpdateTask({ assigneeIds: newAssigneeIds, assignees: updatedAssignees });
@@ -1574,14 +1649,16 @@ export default function TaskDetailModal({
                         </button>
                       </div>
                       <div className="prose prose-sm max-w-none w-full border-2 border-indigo-500 rounded-2xl p-4 bg-white min-h-[200px] shadow-2xl shadow-indigo-500/5">
-                        <EditorJs
-                          key={descEditSessionKey}
-                          onInitialize={handleDescEditorInit}
-                          onChange={handleDescEditorChange}
-                          defaultValue={descEditDefault}
-                          placeholder="Thêm mô tả chi tiết hơn..."
-                          tools={descEditorTools as any}
-                        />
+                        {canRenderDescEditor ? (
+                          <EditorJs
+                            key={descEditSessionKey}
+                            onInitialize={handleDescEditorInit}
+                            onChange={handleDescEditorChange}
+                            defaultValue={descEditDefault}
+                            placeholder="Thêm mô tả chi tiết hơn..."
+                            tools={descEditorTools as any}
+                          />
+                        ) : null}
                       </div>
                       <div className="flex items-center space-x-3">
                         <button
@@ -1644,12 +1721,14 @@ export default function TaskDetailModal({
                           className="pointer-events-none [&_.ce-toolbar]:hidden [&_.ce-toolbox]:hidden"
                           aria-hidden
                         >
-                          <EditorJsViewer
-                            key={`${localTask.id}-view-${(localTask.description || '').length}-${(localTask.description || '').slice(-24)}`}
-                            defaultValue={parseTaskDescriptionData(localTask.description)}
-                            readOnly
-                            tools={descEditorTools as any}
-                          />
+                          {canRenderDescViewer ? (
+                            <EditorJsViewer
+                              key={`${localTask.id}-view-${(localTask.description || '').length}-${(localTask.description || '').slice(-24)}`}
+                              defaultValue={parseTaskDescriptionData(localTask.description)}
+                              readOnly
+                              tools={descEditorTools as any}
+                            />
+                          ) : null}
                         </div>
                       ) : (
                         <span>Thêm mô tả chi tiết hơn để mọi người cùng nắm bắt...</span>
@@ -2398,13 +2477,15 @@ export default function TaskDetailModal({
                 <button className="w-full px-4 py-3 bg-white border border-slate-100 hover:bg-slate-50 text-slate-600 rounded-2xl text-xs font-black flex items-center transition-all shadow-sm">
                    Di chuyển thẻ
                 </button>
-                <button
-                  type="button"
-                  onClick={() => setIsCopyModalOpen(true)}
-                  className="w-full px-4 py-3 bg-white border border-slate-100 hover:bg-slate-50 text-slate-600 rounded-2xl text-xs font-black flex items-center transition-all shadow-sm"
-                >
-                   Sao chép thẻ
-                </button>
+                {canDuplicateCard ? (
+                  <button
+                    type="button"
+                    onClick={() => setIsCopyModalOpen(true)}
+                    className="w-full px-4 py-3 bg-white border border-slate-100 hover:bg-slate-50 text-slate-600 rounded-2xl text-xs font-black flex items-center transition-all shadow-sm"
+                  >
+                    Sao chép thẻ
+                  </button>
+                ) : null}
                 <button 
                    onClick={() => handleUpdateTask({ status: 'DONE' })}
                    className="w-full px-4 py-4 bg-emerald-500 hover:bg-emerald-600 text-white rounded-2xl text-xs font-black flex items-center justify-center transition-all border-none shadow-xl shadow-emerald-100 active:scale-95"
@@ -2526,6 +2607,7 @@ export default function TaskDetailModal({
     />
 
     {isCopyModalOpen &&
+      canDuplicateCard &&
       typeof window !== 'undefined' &&
       createPortal(
         <div
@@ -2542,6 +2624,7 @@ export default function TaskDetailModal({
               sourceTaskId={localTask.id}
               initialTitle={localTask.title || ''}
               initialStatus={localTask.status}
+              boardLists={boardListsForCopy}
               boardTasks={boardTasks}
               onClose={() => setIsCopyModalOpen(false)}
               onOptimisticTaskCopy={onOptimisticTaskCopy}

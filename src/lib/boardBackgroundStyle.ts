@@ -16,12 +16,13 @@ export function isLightColorHex(hex: string): boolean {
 
 export function isCssColorOrGradient(value: string): boolean {
   const v = value.trim();
+  const lower = v.toLowerCase();
   if (
-    v.startsWith('linear-gradient') ||
-    v.startsWith('radial-gradient') ||
-    v.startsWith('#') ||
-    v.startsWith('rgb') ||
-    v.startsWith('hsl')
+    lower.startsWith('linear-gradient') ||
+    lower.startsWith('radial-gradient') ||
+    lower.startsWith('#') ||
+    lower.startsWith('rgb') ||
+    lower.startsWith('hsl')
   ) {
     return true;
   }

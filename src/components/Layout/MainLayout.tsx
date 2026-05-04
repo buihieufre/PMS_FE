@@ -1,5 +1,6 @@
 import Sidebar from '@/components/Layout/Sidebar';
 import { Topbar } from '@/components/Layout/Topbar';
+import { APP_FAVICON_HREF } from '@/components/Brand/AppLogo';
 import { ReactNode, useEffect, useRef } from 'react';
 import { useSocket } from '@/hooks/useSocket';
 import { useAuthStore } from '@/store/authStore';
@@ -68,7 +69,7 @@ export default function MainLayout({
               if (Notification.permission === 'granted' && payload?.notification) {
                 new Notification(payload.notification.title || 'Thông báo', {
                   body: payload.notification.body,
-                  icon: '/favicon.ico'
+                  icon: APP_FAVICON_HREF
                 });
               }
             });

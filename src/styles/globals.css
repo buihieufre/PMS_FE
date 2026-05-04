@@ -14,6 +14,26 @@ body {
 }
 
 /*
+ * Bảng Kanban: tránh bôi đen chữ khi kéo cuộn ngang/dọc hoặc lướt.
+ * Modal/popover gắn vào document.body vẫn chọn chữ bình thường.
+ */
+.board-page-active {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.board-page-active :where(input, textarea, select, [contenteditable='true']) {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+.board-page-active .select-text,
+.board-page-active .prose {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+/*
  * Thanh cuộn mặc định: màu mờ (slate nhạt), không tam giác / nút hai đầu (WebKit).
  * Các lớp .custom-scrollbar phía dưới ghi đè khi cần.
  */

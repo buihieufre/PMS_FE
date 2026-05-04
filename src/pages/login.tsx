@@ -3,7 +3,8 @@ import { useRouter } from 'next/router';
 import Head from 'next/head';
 import axiosInstance from '@/lib/axios';
 import { useAuthStore } from '@/store/authStore';
-import { Loader2, Mail, Lock, LayoutDashboard } from 'lucide-react';
+import { Loader2, Mail, Lock } from 'lucide-react';
+import { AppLogo } from '@/components/Brand/AppLogo';
 import { toast } from 'sonner';
 
 export default function Login() {
@@ -72,8 +73,8 @@ export default function Login() {
       <div className="w-full max-w-md p-8 bg-slate-900/40 backdrop-blur-2xl border border-white/10 rounded-[32px] shadow-[0_30px_70px_rgba(0,0,0,0.5)] relative z-10 animate-in zoom-in-95 duration-500">
         
         <div className="flex flex-col items-center mb-10 text-center">
-          <div className="w-16 h-16 bg-gradient-to-tr from-indigo-500 to-sky-400 rounded-2xl flex items-center justify-center shadow-2xl shadow-indigo-500/20 mb-6 rotate-3">
-            <LayoutDashboard className="w-8 h-8 text-white" />
+          <div className="mb-6 rotate-3 drop-shadow-2xl">
+            <AppLogo boardBackground={null} size={64} />
           </div>
           <h2 className="text-3xl font-black text-white tracking-tight mb-2">Chào mừng trở lại</h2>
           <p className="text-slate-400 font-medium">Đăng nhập vào không gian làm việc của bạn</p>

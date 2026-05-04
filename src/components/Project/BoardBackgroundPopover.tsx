@@ -4,7 +4,9 @@ import axiosInstance from '@/lib/axios';
 import { toast } from 'sonner';
 
 interface BoardBackgroundPopoverProps {
-  projectId: string;
+  /** Đường dẫn API lưu giao diện cá nhân (vd: `/projects/:id/me/board-view`) */
+  boardViewPath: string;
+  /** Giá trị hiển thị để highlight preset (nền cá nhân nếu có, không thì fallback đã tính ở parent) */
   currentBackground?: string | null;
   onClose: () => void;
   onBackgroundChange: (bg: string | null) => void;
@@ -34,7 +36,7 @@ const PRESET_COLORS = [
 type Tab = 'gradient' | 'color' | 'link' | 'upload';
 
 export default function BoardBackgroundPopover({
-  projectId,
+  boardViewPath,
   currentBackground,
   onClose,
   onBackgroundChange,
@@ -62,12 +64,11 @@ export default function BoardBackgroundPopover({
       try {
         const formData = new FormData();
         formData.append('image', file);
-        const res = await axiosInstance.patch(`/projects/${projectId}/background`, formData, {
+        const res = await axiosInstance.patch(boardViewPath, formData, {
           headers: { 'Content-Type': 'multipart/form-data' },
         });
-        const newBg = res.data.project.background;
+        const newBg = res.data?.boardView?.background ?? null;
         onBackgroundChange(newBg);
-        toast.success('Đã cập nhật hình nền bảng!');
       } catch (err) {
         onBackgroundChange(previous);
         toast.error('Cập nhật hình nền thất bại');
@@ -82,8 +83,10 @@ export default function BoardBackgroundPopover({
     onBackgroundChange(value);
 
     try {
-      await axiosInstance.patch(`/projects/${projectId}/background`, { background: value });
-      toast.success('Đã cập nhật hình nền bảng!');
+      const res = await axiosInstance.patch(boardViewPath, { background: value });
+      if (res.data?.boardView) {
+        onBackgroundChange(res.data.boardView.background ?? null);
+      }
     } catch (err: any) {
       onBackgroundChange(previous);
       const msg = err?.response?.data?.error || err?.message || 'Lỗi mạng';
@@ -120,9 +123,14 @@ export default function BoardBackgroundPopover({
     >
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-slate-50">
-        <div className="flex items-center gap-2">
-          <Image className="h-4 w-4 text-slate-500" />
-          <span className="text-sm font-bold text-slate-700">Hình nền bảng</span>
+        <div className="flex flex-col gap-0.5">
+          <div className="flex items-center gap-2">
+            <Image className="h-4 w-4 text-slate-500" />
+            <span className="text-sm font-bold text-slate-700">Hình nền của bạn</span>
+          </div>
+          <p className="text-[10px] text-slate-400 font-medium pl-6 leading-snug">
+            Chỉ bạn thấy. Không đổi nền chung của dự án.
+          </p>
         </div>
         <button onClick={onClose} className="p-1 rounded-lg hover:bg-slate-200 text-slate-400 transition-colors">
           <X className="h-3.5 w-3.5" />
@@ -271,7 +279,7 @@ export default function BoardBackgroundPopover({
           onClick={() => applyBackground(null)}
           className="w-full py-2 border border-slate-200 text-slate-500 text-xs font-bold rounded-xl hover:bg-slate-50 transition-colors"
         >
-          Xóa hình nền
+          Xóa nền riêng (dùng nền mặc định dự án)
         </button>
       </div>
     </div>

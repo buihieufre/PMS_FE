@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 import { TaskAppearancePopover } from './TaskAppearancePopover';
 import type { TaskCoverMode } from '@/lib/boardBackgroundStyle';
-import { CopyTaskCardForm, type CopyTaskBoardTaskRef } from './CopyTaskCardForm';
+import { CopyTaskCardForm } from './CopyTaskCardForm';
 import type { BoardTask } from './TaskCardFace';
 import { toast } from 'sonner';
 import axiosInstance from '@/lib/axios';
@@ -27,6 +27,7 @@ const COLUMN_OPTIONS: { id: string; title: string }[] = [
   { id: 'DELAYED', title: 'Tạm hoãn' },
   { id: 'DONE', title: 'Hoàn thành' },
   { id: 'APPROVED', title: 'Đã duyệt' },
+  { id: 'REJECTED', title: 'Từ chối' },
 ];
 
 export type QuickMenuView = 'actions' | 'cover' | 'labels' | 'dates' | 'move' | 'copy';
@@ -35,6 +36,7 @@ type TaskLite = {
   id: string;
   title: string;
   status: string;
+  boardListId?: string | null;
   background?: string | null;
   textColor?: string | null;
   coverMode?: TaskCoverMode | null;
@@ -43,6 +45,8 @@ type TaskLite = {
   dueDate?: string | null;
 };
 
+export type BoardColumnOption = { id: string; title: string; mapsToStatus: string };
+
 type Props = {
   view: QuickMenuView;
   onViewChange: (v: QuickMenuView) => void;
@@ -50,25 +54,31 @@ type Props = {
   task: TaskLite;
   projectId: string;
   projectName: string;
-  boardTasks: CopyTaskBoardTaskRef[];
+  /** Cột bảng (id = boardListId) — ưu tiên thay cho COLUMN_OPTIONS cố định */
+  boardColumnOptions?: BoardColumnOption[];
+  boardTasks: { id: string; status: string; boardListId?: string | null }[];
   /** overlay Trello: nền tối + thẻ + menu — style menu dọc */
   layout?: 'default' | 'trello';
   onOpenCard: () => void;
   onAppearance: (data: { background?: string; textColor?: string; coverMode?: TaskCoverMode | null }) => void;
   onLabels: (newLabelIds: string[], updatedLabels: NonNullable<TaskLite['labels']>) => void;
-  onMove: (status: string) => void;
+  onMove: (targetListId: string) => void;
   onArchive: () => void;
   onSaveDates: (startDate: string | null, dueDate: string | null) => void;
   copySourceTask: BoardTask;
+  boardListsForCopy?: { id: string; name: string; mapsToStatus: string }[];
   onOptimisticTaskCopy?: (args: {
     tempId: string;
     title: string;
     status: string;
+    boardListId: string | null;
     position: number;
     sourceTask: BoardTask;
   }) => void;
   onCopyTaskConfirm?: (tempId: string, task: BoardTask) => void;
   onCopyTaskRollback?: (tempId: string, message?: string) => void;
+  /** Sao chép thẻ — đồng bộ với quyền tạo thẻ (chủ dự án / admin) */
+  canDuplicateCard?: boolean;
 };
 
 function toLocalDateInput(iso: string | null | undefined): string {
@@ -165,6 +175,7 @@ export function TaskCardQuickMenu({
   task,
   projectId,
   projectName,
+  boardColumnOptions,
   boardTasks,
   layout = 'default',
   onOpenCard,
@@ -174,9 +185,11 @@ export function TaskCardQuickMenu({
   onArchive,
   onSaveDates,
   copySourceTask,
+  boardListsForCopy,
   onOptimisticTaskCopy,
   onCopyTaskConfirm,
   onCopyTaskRollback,
+  canDuplicateCard = true,
 }: Props) {
   const isTrello = layout === 'trello';
 
@@ -190,6 +203,13 @@ export function TaskCardQuickMenu({
       toast.error('Không thể sao chép liên kết');
     }
   };
+
+  useEffect(() => {
+    if (view === 'copy' && !canDuplicateCard) {
+      onViewChange('actions');
+    }
+  }, [view, canDuplicateCard, onViewChange]);
+
   const [start, setStart] = useState(toLocalDateInput(task.startDate));
   const [due, setDue] = useState(toLocalDateInput(task.dueDate));
 
@@ -248,7 +268,9 @@ export function TaskCardQuickMenu({
             { k: 'cover' as const, icon: ImageIcon, label: 'Thay đổi bìa', onClick: () => onViewChange('cover') },
             { k: 'dates' as const, icon: Calendar, label: 'Chỉnh sửa ngày', onClick: () => onViewChange('dates') },
             { k: 'move' as const, icon: ArrowRight, label: 'Di chuyển', onClick: () => onViewChange('move') },
-            { k: 'copy' as const, icon: Copy, label: 'Sao chép thẻ', onClick: () => onViewChange('copy') },
+            ...(canDuplicateCard
+              ? [{ k: 'copy' as const, icon: Copy, label: 'Sao chép thẻ', onClick: () => onViewChange('copy') }]
+              : []),
             { k: 'link' as const, icon: Link2, label: 'Sao chép liên kết', onClick: () => void copyCardLink() },
             { k: 'arch' as const, icon: Archive, label: 'Lưu trữ', onClick: onArchive },
           ].map(({ k, icon: Icon, label, onClick }) => (
@@ -337,15 +359,23 @@ export function TaskCardQuickMenu({
   }
 
   if (view === 'move') {
+    const moveOptions: BoardColumnOption[] =
+      boardColumnOptions && boardColumnOptions.length > 0
+        ? boardColumnOptions
+        : COLUMN_OPTIONS.map((c) => ({ id: c.id, title: c.title, mapsToStatus: c.id }));
+
+    const isCurrentColumn = (col: BoardColumnOption) =>
+      task.boardListId ? col.id === task.boardListId : col.mapsToStatus === task.status;
+
     return (
       <div className="w-64 overflow-hidden rounded-xl border border-slate-200 bg-white py-1.5 shadow-2xl">
         {header('Cột đích')}
         <div className="max-h-64 overflow-y-auto px-1.5 custom-scrollbar">
-          {COLUMN_OPTIONS.map((col) => (
+          {moveOptions.map((col) => (
             <button
               key={col.id}
               type="button"
-              disabled={col.id === task.status}
+              disabled={isCurrentColumn(col)}
               onClick={() => {
                 onMove(col.id);
                 onClose();
@@ -353,7 +383,7 @@ export function TaskCardQuickMenu({
               className="flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left text-sm font-semibold text-slate-800 hover:bg-slate-100 disabled:cursor-default disabled:opacity-40"
             >
               {col.title}
-              {col.id === task.status && <span className="text-[10px] text-slate-400">hiện tại</span>}
+              {isCurrentColumn(col) && <span className="text-[10px] text-slate-400">hiện tại</span>}
             </button>
           ))}
         </div>
@@ -371,6 +401,7 @@ export function TaskCardQuickMenu({
         sourceTaskId={task.id}
         initialTitle={task.title}
         initialStatus={task.status}
+        boardLists={boardListsForCopy}
         boardTasks={boardTasks}
         onBack={() => onViewChange('actions')}
         onClose={onClose}

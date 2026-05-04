@@ -4,11 +4,14 @@ import { Home, FolderGit2, Users, Settings, Shield, Building2 } from 'lucide-rea
 import { clsx } from 'clsx';
 import { useAuthStore } from '@/store/authStore';
 import { useSidebar } from '@/contexts/sidebarContext';
+import { useBoardBranding } from '@/contexts/boardBrandingContext';
+import { AppLogo } from '@/components/Brand/AppLogo';
 
 export default function Sidebar() {
   const router = useRouter();
   const user = useAuthStore((state) => state.user);
   const { collapsed } = useSidebar();
+  const { boardBackground } = useBoardBranding();
   
   const navItems = [
     { name: 'Bảng điều khiển', href: '/', icon: Home, roles: ['ALL'] },
@@ -16,7 +19,7 @@ export default function Sidebar() {
     { name: 'Phòng ban', href: '/departments', icon: Building2, roles: ['ADMIN'] },
     { name: 'Người dùng', href: '/users', icon: Users, roles: ['ADMIN'] },
     { name: 'Vai trò', href: '/roles', icon: Shield, roles: ['ADMIN'] },
-    { name: 'Cài đặt', href: '/settings', icon: Settings, roles: ['ADMIN'] },
+    { name: 'Cài đặt', href: '/settings', icon: Settings, roles: ['ALL'] },
   ];
 
   const visibleNavItems = navItems.filter(item => 
@@ -37,13 +40,23 @@ export default function Sidebar() {
           collapsed ? 'justify-center px-1 py-2' : 'px-3'
         )}
       >
-        {collapsed ? (
-          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-slate-800 text-[10px] font-black text-white" aria-hidden>
-            P
-          </div>
-        ) : (
-          <h1 className="min-w-0 truncate text-lg font-bold tracking-tight text-white">Quản trị PMS</h1>
-        )}
+        <Link
+          href="/"
+          className={clsx(
+            'flex min-w-0 items-center gap-2.5 rounded-lg outline-none transition-opacity hover:opacity-95 focus-visible:ring-2 focus-visible:ring-emerald-500/50',
+            collapsed ? 'justify-center' : ''
+          )}
+          title="Về bảng điều khiển"
+        >
+          <AppLogo boardBackground={boardBackground} size={collapsed ? 34 : 36} />
+          {!collapsed ? (
+            <h1 className="min-w-0 truncate text-lg font-bold tracking-tight text-white">
+              PMS
+            </h1>
+          ) : (
+            <span className="sr-only">PMS — Trang chủ</span>
+          )}
+        </Link>
       </div>
       <nav
         className={clsx('flex-1 py-4 space-y-0.5 overflow-y-auto', collapsed ? 'px-1.5' : 'px-3')}

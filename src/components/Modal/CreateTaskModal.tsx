@@ -27,6 +27,7 @@ import { Popover, Transition } from '@headlessui/react';
 import TaskDatePicker from '../Project/TaskDatePicker';
 import { useSocket } from '@/hooks/useSocket';
 import DescriptionEditorExpandModal from './DescriptionEditorExpandModal';
+import { useAuthStore } from '@/store/authStore';
 
 const EditorJs = dynamic(
   () => import('react-editor-js').then((mod) => mod.createReactEditorJS()),
@@ -39,11 +40,16 @@ interface CreateTaskModalProps {
   projectId: string;
   departments: any[];
   members: any[];
+  boardLists?: { id: string; name: string; mapsToStatus: string }[];
   onSuccess: () => void;
   initialStatus?: string;
+  /** Cột đích khi mở từ bảng (board list id) */
+  initialBoardListId?: string | null;
+  /** User.id của người tạo bản ghi Project — chỉ người này được gán thẻ cho thành viên khác */
+  projectOwnerId?: string | null;
 }
 
-export default function CreateTaskModal({ isOpen, onClose, projectId, departments, members, onSuccess, initialStatus }: CreateTaskModalProps) {
+export default function CreateTaskModal({ isOpen, onClose, projectId, departments, members, boardLists = [], onSuccess, initialStatus, initialBoardListId, projectOwnerId }: CreateTaskModalProps) {
   interface Label {
     id: string;
     name: string | null;
@@ -60,6 +66,7 @@ export default function CreateTaskModal({ isOpen, onClose, projectId, department
   /** JSON OutputData từ Editor.js; đồng bộ bằng onChange (khi mở lại modal vẫn còn nội dung). */
   const [description, setDescription] = useState('');
   const [descriptionEditorKey, setDescriptionEditorKey] = useState(0);
+  const [canRenderDescriptionEditor, setCanRenderDescriptionEditor] = useState(false);
   const descriptionEditorRef = useRef<any>(null);
   const tools = useMemo(() => getEditorTools(), []);
   // Chỉ khi descriptionEditorKey đổi (mở modal / tạo xong): lấy description hiện tại; không phụ thuộc mỗi lần gõ để không reset editor.
@@ -87,6 +94,22 @@ export default function CreateTaskModal({ isOpen, onClose, projectId, department
     }
     prevIsOpen.current = isOpen;
   }, [isOpen]);
+  useEffect(() => {
+    if (!isOpen) {
+      setCanRenderDescriptionEditor(false);
+      descriptionEditorRef.current = null;
+      return;
+    }
+    let raf = 0;
+    raf = window.requestAnimationFrame(() => {
+      setCanRenderDescriptionEditor(true);
+    });
+    return () => {
+      window.cancelAnimationFrame(raf);
+      setCanRenderDescriptionEditor(false);
+      descriptionEditorRef.current = null;
+    };
+  }, [isOpen, descriptionEditorKey]);
   const [assigneeIds, setAssigneeIds] = useState<string[]>([]);
   const [labelIds, setLabelIds] = useState<string[]>([]);
   const [labels, setLabels] = useState<Label[]>([]);
@@ -99,11 +122,16 @@ export default function CreateTaskModal({ isOpen, onClose, projectId, department
   const [dueDate, setDueDate] = useState<string | null>(null);
   const [reminderOffset, setReminderOffset] = useState<number | null>(null);
   const [status, setStatus] = useState<string>(initialStatus || 'PENDING');
+  const [boardListIdForCreate, setBoardListIdForCreate] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showForcePrompt, setShowForcePrompt] = useState(false);
   const [descriptionExpandOpen, setDescriptionExpandOpen] = useState(false);
   const submitInFlightRef = useRef(false);
   const { emit } = useSocket(projectId);
+  const { user } = useAuthStore() as { user: any };
+  const canAssignOthers = Boolean(
+    user?.id && projectOwnerId != null && String(user.id) === String(projectOwnerId)
+  );
 
   // Member Search State
   const [isMemberSearchOpen, setIsMemberSearchOpen] = useState(false);
@@ -113,12 +141,25 @@ export default function CreateTaskModal({ isOpen, onClose, projectId, department
   const memberSearchRef = useRef<HTMLDivElement>(null);
   const labelSearchRef = useRef<HTMLDivElement>(null);
 
-  // Update status when initialStatus changes or modal opens
+  const selectedBoardList = useMemo(
+    () => boardLists.find((list) => list.id === boardListIdForCreate) || null,
+    [boardLists, boardListIdForCreate]
+  );
+
+  // Khi mở modal: áp cột / trạng thái được chọn từ bảng
   useEffect(() => {
-    if (initialStatus) {
-      setStatus(initialStatus);
+    if (!isOpen) return;
+    if (initialBoardListId) {
+      const matchedList = boardLists.find((list) => list.id === initialBoardListId);
+      if (matchedList) {
+        setBoardListIdForCreate(matchedList.id);
+        setStatus(matchedList.mapsToStatus);
+        return;
+      }
     }
-  }, [initialStatus, isOpen]);
+    if (initialStatus) setStatus(initialStatus);
+    setBoardListIdForCreate(initialBoardListId ?? null);
+  }, [isOpen, initialStatus, initialBoardListId, boardLists]);
 
   // Click outside listener for member search
   useEffect(() => {
@@ -147,6 +188,11 @@ export default function CreateTaskModal({ isOpen, onClose, projectId, department
     fetchLabels();
   }, [isOpen, projectId]);
 
+  useEffect(() => {
+    if (!isOpen || canAssignOthers || !user?.id) return;
+    setAssigneeIds((prev) => prev.filter((id) => String(id) === String(user.id)));
+  }, [isOpen, canAssignOthers, user?.id]);
+
   if (!isOpen) return null;
 
   const submitTask = async (force = false) => {
@@ -159,7 +205,13 @@ export default function CreateTaskModal({ isOpen, onClose, projectId, department
     submitInFlightRef.current = true;
     setIsSubmitting(true);
     try {
-      const selectedMembersForDepartment = members.filter(m => assigneeIds.includes(m.userId));
+      const resolvedAssigneeIds = canAssignOthers
+        ? assigneeIds
+        : assigneeIds.filter((id) => String(id) === String(user?.id));
+
+      const selectedMembersForDepartment = members.filter((m) =>
+        resolvedAssigneeIds.includes(m.userId)
+      );
       const selectedDepartmentIds = Array.from(
         new Set(
           selectedMembersForDepartment
@@ -183,8 +235,9 @@ export default function CreateTaskModal({ isOpen, onClose, projectId, department
         title: title.trim(),
         description: descriptionPayload,
         status,
+        ...(boardListIdForCreate ? { boardListId: boardListIdForCreate } : {}),
         departmentId: derivedDepartmentId,
-        assigneeIds: assigneeIds,
+        assigneeIds: resolvedAssigneeIds,
         labelIds: labelIds,
         startDate: startDate || null,
         dueDate: dueDate || null,
@@ -276,6 +329,13 @@ export default function CreateTaskModal({ isOpen, onClose, projectId, department
 
   const selectedMembers = members.filter(m => assigneeIds.includes(m.userId));
   const selectedLabels = labels.filter(l => labelIds.includes(l.id));
+  const assignPool = canAssignOthers
+    ? members
+    : members.filter(
+        (m: any) =>
+          user?.id &&
+          (String(m.userId) === String(user.id) || String(m.user?.id) === String(user.id))
+      );
   const selectedMembersDepartments = Array.from(
     new Set(
       selectedMembers
@@ -284,7 +344,7 @@ export default function CreateTaskModal({ isOpen, onClose, projectId, department
     )
   );
 
-  const filteredMembers = members.filter(m => 
+  const filteredMembers = assignPool.filter(m => 
     m.user?.displayName?.toLowerCase().includes(memberSearchTerm.toLowerCase()) ||
     m.user?.email?.toLowerCase().includes(memberSearchTerm.toLowerCase())
   );
@@ -369,16 +429,37 @@ export default function CreateTaskModal({ isOpen, onClose, projectId, department
           <div className="flex-1 pt-2">
             <div className="flex items-center space-x-3 mb-4">
                <select 
-                  value={status}
-                  onChange={(e) => setStatus(e.target.value)}
+                  value={boardListIdForCreate || status}
+                  onChange={(e) => {
+                    if (boardLists.length > 0) {
+                      const chosen = boardLists.find((list) => list.id === e.target.value);
+                      if (chosen) {
+                        setBoardListIdForCreate(chosen.id);
+                        setStatus(chosen.mapsToStatus);
+                        return;
+                      }
+                    }
+                    setStatus(e.target.value);
+                    setBoardListIdForCreate(null);
+                  }}
                   className="px-3 py-1.5 bg-white hover:bg-slate-50 border border-slate-200 rounded-lg text-[10px] font-black cursor-pointer transition-all flex items-center outline-none shadow-sm uppercase tracking-wider text-slate-600 appearance-none pr-8 relative bg-[url('data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' fill=\'none\' viewBox=\'0 0 24 24\' stroke=\'currentColor\'%3E%3Cpath stroke-linecap=\'round\' stroke-linejoin=\'round\' stroke-width=\'2\' d=\'M19 9l-7 7-7-7\' /%3E%3C/svg%3E')] bg-[length:12px] bg-[position:right_8px_center] bg-no-repeat"
                 >
-                  <option value="PENDING">Chờ xử lý</option>
-                  <option value="IN_PROGRESS">Đang thực hiện</option>
-                  <option value="DONE">Hoàn thành</option>
-                  <option value="WAITING_FOR_DOCUMENT">Chờ tài liệu</option>
-                  <option value="DELAYED">Tạm hoãn</option>
-                  <option value="APPROVED">Đã duyệt</option>
+                  {boardLists.length > 0 ? (
+                    boardLists.map((list) => (
+                      <option key={list.id} value={list.id}>
+                        {list.name}
+                      </option>
+                    ))
+                  ) : (
+                    <>
+                      <option value="PENDING">Chờ xử lý</option>
+                      <option value="IN_PROGRESS">Đang thực hiện</option>
+                      <option value="DONE">Hoàn thành</option>
+                      <option value="WAITING_FOR_DOCUMENT">Chờ tài liệu</option>
+                      <option value="DELAYED">Tạm hoãn</option>
+                      <option value="APPROVED">Đã duyệt</option>
+                    </>
+                  )}
                </select>
 
                <div className="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-[10px] font-black shadow-sm uppercase tracking-wider text-indigo-600">
@@ -488,7 +569,11 @@ export default function CreateTaskModal({ isOpen, onClose, projectId, department
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-10">
                  <div className="space-y-3" ref={memberSearchRef}>
                     <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] pl-1">Người thực hiện</h4>
-                    
+                    {!canAssignOthers && (
+                      <p className="text-[11px] text-slate-500 leading-snug pl-1">
+                        Chỉ người tạo dự án mới gán được thẻ cho người khác. Bạn có thể để trống hoặc chỉ gán cho chính mình.
+                      </p>
+                    )}
                     <div className="relative">
                         <button 
                          type="button"
@@ -722,14 +807,16 @@ export default function CreateTaskModal({ isOpen, onClose, projectId, department
                 </div>
                 <div className="ml-12 relative group">
                   <div className="prose prose-sm max-w-none w-full border-2 border-transparent group-hover:border-slate-200/80 focus-within:border-indigo-500 rounded-2xl p-4 bg-slate-50 group-hover:bg-slate-100/50 focus-within:bg-white min-h-[180px] transition-all focus-within:ring-2 focus-within:ring-indigo-500/20 focus-within:shadow-xl focus-within:shadow-indigo-500/5">
-                    <EditorJs
-                      key={descriptionEditorKey}
-                      onInitialize={handleDescriptionInit}
-                      onChange={handleDescriptionChange}
-                      defaultValue={descriptionDefault}
-                      placeholder="Mô tả những gì cần thực hiện..."
-                      tools={tools as any}
-                    />
+                    {canRenderDescriptionEditor ? (
+                      <EditorJs
+                        key={descriptionEditorKey}
+                        onInitialize={handleDescriptionInit}
+                        onChange={handleDescriptionChange}
+                        defaultValue={descriptionDefault}
+                        placeholder="Mô tả những gì cần thực hiện..."
+                        tools={tools as any}
+                      />
+                    ) : null}
                   </div>
                 </div>
               </section>
@@ -919,7 +1006,22 @@ export default function CreateTaskModal({ isOpen, onClose, projectId, department
                     <div className="space-y-4 mb-10">
                        <div className="p-4 bg-white/5 rounded-2xl border border-white/10">
                           <p className="text-[10px] font-bold text-slate-400 uppercase mb-2">Vị trí cột</p>
-                          <p className="text-sm font-black text-white">{status === 'PENDING' ? 'Chờ xử lý' : status === 'IN_PROGRESS' ? 'Đang thực hiện' : status === 'DONE' ? 'Hoàn thành' : status === 'WAITING_FOR_DOCUMENT' ? 'Chờ tài liệu' : status === 'DELAYED' ? 'Tạm hoãn' : status === 'APPROVED' ? 'Đã duyệt' : status}</p>
+                          <p className="text-sm font-black text-white">
+                            {selectedBoardList?.name ||
+                              (status === 'PENDING'
+                                ? 'Chờ xử lý'
+                                : status === 'IN_PROGRESS'
+                                ? 'Đang thực hiện'
+                                : status === 'DONE'
+                                ? 'Hoàn thành'
+                                : status === 'WAITING_FOR_DOCUMENT'
+                                ? 'Chờ tài liệu'
+                                : status === 'DELAYED'
+                                ? 'Tạm hoãn'
+                                : status === 'APPROVED'
+                                ? 'Đã duyệt'
+                                : status)}
+                          </p>
                        </div>
                     </div>
 

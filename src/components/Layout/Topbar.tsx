@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { useAuthStore } from '@/store/authStore';
 import { useNotificationStore } from '@/store/notificationStore';
 import { 
@@ -8,13 +8,10 @@ import {
   LogOut, 
   User as UserIcon, 
   ChevronDown,
-  Zap,
-  Check,
   CheckCircle2
 } from 'lucide-react';
 import { Menu, Transition } from '@headlessui/react';
 import { Fragment } from 'react';
-import { SettingsModal } from '../Modal/SettingsModal';
 import { useRouter } from 'next/router';
 
 import { requestNotificationPermission } from '@/lib/firebase';
@@ -30,7 +27,6 @@ type TopbarProps = {
 export const Topbar = ({ showSidebarToggle = true }: TopbarProps) => {
   const { toggle, collapsed } = useSidebar();
   const { user, logout } = useAuthStore();
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const router = useRouter();
 
 
@@ -167,7 +163,7 @@ export const Topbar = ({ showSidebarToggle = true }: TopbarProps) => {
                 {user?.displayName}
               </span>
               <span className="text-[10px] font-medium text-slate-500 uppercase tracking-widest bg-slate-100 px-1.5 py-0.5 rounded leading-none">
-                {user?.role === 'ADMIN' ? 'Quản trị viên' : user?.role === 'OWNER' ? 'Chủ sở hữu' : user?.role === 'LEAD' ? 'Trưởng nhóm' : user?.role === 'EMPLOYEE' ? 'Nhân viên' : user?.role === 'FREELANCER' ? 'Cộng tác viên' : user?.role === 'CLIENT' ? 'Khách hàng' : user?.role}
+                {user?.role === 'ADMIN' ? 'Quản trị viên' : user?.role === 'OWNER' ? 'Chủ sở hữu' : user?.role === 'LEAD' ? 'Trưởng nhóm' : user?.role === 'EMPLOYEE' ? 'Nhân viên' : user?.role}
               </span>
             </div>
             <div className="relative">
@@ -203,25 +199,13 @@ export const Topbar = ({ showSidebarToggle = true }: TopbarProps) => {
                 <Menu.Item>
                   {({ active }) => (
                     <button
-                      onClick={() => setIsSettingsOpen(true)}
+                      onClick={() => router.push('/settings')}
                       className={`${
                         active ? 'bg-emerald-50 text-emerald-600' : 'text-slate-700'
                       } group flex w-full items-center rounded-xl px-3 py-2.5 text-sm font-semibold transition-colors`}
                     >
                       <Settings className="mr-3 h-4 w-4 transition-transform group-hover:rotate-45" />
                       Cài đặt tài khoản
-                    </button>
-                  )}
-                </Menu.Item>
-                <Menu.Item>
-                  {({ active }) => (
-                    <button
-                      className={`${
-                        active ? 'bg-emerald-50 text-emerald-600' : 'text-slate-700'
-                      } group flex w-full items-center rounded-xl px-3 py-2.5 text-sm font-semibold transition-colors`}
-                    >
-                      <Zap className="mr-3 h-4 w-4 text-amber-500" />
-                      Gói Pro
                     </button>
                   )}
                 </Menu.Item>
@@ -281,7 +265,6 @@ export const Topbar = ({ showSidebarToggle = true }: TopbarProps) => {
         </Menu>
       </div>
 
-      <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
     </div>
   );
 };

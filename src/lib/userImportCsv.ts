@@ -130,22 +130,18 @@ export function matrixToUserImportRows(matrix: string[][]): { rows: UserImportRo
 }
 
 /**
- * File mẫu chi tiết (đồng bộ với public/mau-import-nguoi-dung-chi-tiet.csv).
+ * Nội dung file CSV mẫu (nút « Tải file CSV mẫu » trong modal import).
  * Cột: email (bắt buộc), displayName (bắt buộc), roleName hoặc roleId (bắt buộc), departmentName hoặc departmentId (tuỳ chọn, để trống = không gán phòng ban).
- * roleName phải khớp tên trong hệ thống: ADMIN OWNER LEAD EMPLOYEE FREELANCER CLIENT (và các role khác nếu có).
+ * roleName phải khớp tên trong hệ thống: ADMIN OWNER LEAD EMPLOYEE (và các role khác nếu có).
  * departmentName phải khớp tên phòng ban đã tạo trong PMS; nếu sai tên, dòng đó báo lỗi khi import.
  */
 export const USER_IMPORT_CSV_TEMPLATE = `email,displayName,roleName,departmentName
 nv.an@congty.com,Nguyễn Văn An,EMPLOYEE,Phòng Kỹ thuật
 tran.bich@congty.com,Trần Thị Bích,LEAD,Phòng Kỹ thuật
 le.hoang@congty.com,Lê Hoàng Dũng,EMPLOYEE,
-hop.dong@partner.vn,Nguyễn Hợp Đồng,FREELANCER,
-dai.dien@khachhang.vn,Đại diện Công ty ABC,CLIENT,
 pham.owner@congty.com,Phạm Minh Owner,OWNER,
 pham.dung@congty.com,"Phạm Thị Dung (Bộ phận CNTT)",EMPLOYEE,"Phòng Công nghệ thông tin"
 intern.moi@congty.com,Thực tập sinh Hoàng Mai,EMPLOYEE,
 lead.khac@congty.com,Hoàng Văn Trưởng nhóm,LEAD,
-client2@duan.vn,Chị Lan Đầu mối dự án,CLIENT,
 employee.hn@congty.com,Nguyễn Hà Nội Chi nhánh,EMPLOYEE,Phòng Kinh doanh
-freelancer.design@mail.com,Designer Phạm Linh,FREELANCER,
 `;

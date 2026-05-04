@@ -149,7 +149,9 @@ export default function UsersPage() {
       const { data } = await axiosInstance.patch(`/users/${userId}`, { isActive: !currentStatus });
       const updated = data.user;
       if (updated) {
-        setSelectedUser((prev) => (prev?.id === userId && updated ? { ...prev, ...updated } : prev));
+        setSelectedUser((prev: typeof selectedUser) =>
+          prev?.id === userId && updated ? { ...prev, ...updated } : prev
+        );
       }
       toast.success(currentStatus ? 'Đã vô hiệu hóa người dùng' : 'Đã kích hoạt lại người dùng');
       refreshUserList();

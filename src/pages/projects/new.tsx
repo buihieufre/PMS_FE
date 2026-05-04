@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import Head from 'next/head';
 import MainLayout from '@/components/Layout/MainLayout';
@@ -9,6 +9,8 @@ import { useRef, useCallback, useMemo } from 'react';
 import { getEditorTools } from '@/lib/editorTools';
 import dynamic from 'next/dynamic';
 import { toast } from 'sonner';
+import { normalizeBoardTemplateOption, type BoardTemplateOption } from '@/lib/boardTemplateOption';
+import { BoardTemplatePreview } from '@/components/Project/BoardTemplatePreview';
 
 const EditorJs = dynamic(
   () => import('react-editor-js').then((mod) => mod.createReactEditorJS()),
@@ -28,6 +30,36 @@ export default function CreateProjectPage() {
   // Array of { file: File, customName: string }
   const [attachments, setAttachments] = useState<{file: File, customName: string}[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [boardTemplates, setBoardTemplates] = useState<BoardTemplateOption[]>([]);
+  const [boardTemplateId, setBoardTemplateId] = useState<string>('');
+
+  const createProjectSelectedLists = useMemo(() => {
+    if (!boardTemplateId) return [];
+    return boardTemplates.find((t) => t.id === boardTemplateId)?.lists ?? [];
+  }, [boardTemplates, boardTemplateId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await axiosInstance.get('/projects/board-templates');
+        if (!cancelled) {
+          const list = (res.data || []).map((t: any) => normalizeBoardTemplateOption(t));
+          setBoardTemplates(list);
+          const def =
+            list.find((t: { name?: string }) => t.name === 'Kanban gốc PMS (6 cột)') ||
+            list.find((t: { isBuiltIn?: boolean; name?: string }) => t.isBuiltIn && t.name?.includes('Kanban')) ||
+            list[0];
+          if (def?.id) setBoardTemplateId(def.id);
+        }
+      } catch {
+        if (!cancelled) setBoardTemplates([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
@@ -65,6 +97,9 @@ export default function CreateProjectPage() {
       const formData = new FormData();
       formData.append('name', name);
       formData.append('description', descData);
+      if (boardTemplateId) {
+        formData.append('boardTemplateId', boardTemplateId);
+      }
       
       attachments.forEach((att) => {
         formData.append('files', att.file);
@@ -115,6 +150,36 @@ export default function CreateProjectPage() {
             </div>
             
             <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Template cột bảng</label>
+              <select
+                value={boardTemplateId}
+                onChange={(e) => setBoardTemplateId(e.target.value)}
+                className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-slate-900 text-sm"
+              >
+                {boardTemplates.length === 0 ? (
+                  <option value="">Mặc định hệ thống</option>
+                ) : (
+                  boardTemplates.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name}
+                      {t.isBuiltIn ? ' (hệ thống)' : ''}
+                    </option>
+                  ))
+                )}
+              </select>
+              <p className="text-xs text-slate-500 mt-1">
+                Chọn bộ cột khi tạo dự án; bạn có thể lưu template từ trang bảng công việc.
+              </p>
+              {boardTemplateId ? (
+                <BoardTemplatePreview
+                  lists={createProjectSelectedLists}
+                  templateId={boardTemplateId}
+                  className="mt-3"
+                />
+              ) : null}
+            </div>
+
+            <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Mô tả dự án <span className="text-red-500">*</span></label>
               <div className="prose max-w-none w-full border border-slate-300 rounded-md p-4 bg-white min-h-[150px] focus-within:ring-2 focus-within:ring-slate-900 focus-within:border-slate-900">
                 <EditorJs
@@ -127,7 +192,7 @@ export default function CreateProjectPage() {
 
             <div className="pt-4 border-t border-slate-200">
               <div className="flex justify-between items-center mb-4">
-                <label className="block text-sm font-medium text-slate-700">Tệp đính kèm dự án (Tối đa 15)</label>
+                <label className="block text-sm font-medium text-slate-700">Tệp đính kèm dự án</label>
                 <label className="cursor-pointer bg-slate-100 hover:bg-slate-200 text-slate-700 py-1.5 px-3 rounded-md text-sm font-medium flex items-center transition-colors">
                   <Upload className="h-4 w-4 mr-2" />
                   Chọn tệp

@@ -2,7 +2,9 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useRouter } from 'next/router';
 import Head from 'next/head';
 import MainLayout from '@/components/Layout/MainLayout';
-import ProjectBoard from '@/components/Project/ProjectBoard';
+import ProjectBoard, { type ServerBoardList } from '@/components/Project/ProjectBoard';
+import { type BoardTemplateOption, normalizeBoardTemplateOption } from '@/lib/boardTemplateOption';
+import { BoardTemplatePreview } from '@/components/Project/BoardTemplatePreview';
 import TaskDetailModal from '@/components/Project/TaskDetailModal';
 import CreateTaskModal from '@/components/Modal/CreateTaskModal';
 import BoardBackgroundPopover from '@/components/Project/BoardBackgroundPopover';
@@ -12,28 +14,55 @@ import {
   Users, 
   ChevronRight,
   Image as ImageIcon,
-  Search
+  Search,
+  Wand2,
+  LayoutTemplate,
+  Pencil
 } from 'lucide-react';
 import Link from 'next/link';
 import { PageHeader } from '@/components/Layout/PageHeader';
 import { useSocket, getSocket } from '@/hooks/useSocket';
 import { toast } from 'sonner';
 import ManageMemberModal from '@/components/Modal/ManageMemberModal';
+import ConfirmModal from '@/components/Modal/ConfirmModal';
+import { EditBoardTemplateModal } from '@/components/Modal/EditBoardTemplateModal';
 import { useAuthStore } from '@/store/authStore';
 import { shouldShowTaskOnBoard } from '@/lib/boardTaskVisibility';
 import { getBoardBackgroundStyle, type TaskCoverMode } from '@/lib/boardBackgroundStyle';
+import { useBoardBranding } from '@/contexts/boardBrandingContext';
+import { buildAppFaviconDataUrl } from '@/lib/appFavicon';
+import { APP_FAVICON_HREF } from '@/components/Brand/AppLogo';
 
-function insertCopiedTaskInColumn(prev: any[], columnStatus: string, position1Based: number, task: any): any[] {
+/** Mọi rel mà `_document` / trình duyệt có thể dùng — phải cập nhật hết kẻo tab vẫn giữ favicon tĩnh. */
+const FAVICON_LINK_RELS = ['icon', 'shortcut icon', 'alternate icon'] as const;
+
+function taskMatchesBoardColumn(
+  t: any,
+  boardListId: string | null | undefined,
+  mapsToStatus: string
+): boolean {
+  if (boardListId && t.boardListId === boardListId) return true;
+  if (!t.boardListId && t.status === mapsToStatus) return true;
+  return false;
+}
+
+function insertCopiedTaskInColumn(
+  prev: any[],
+  boardListId: string | null | undefined,
+  mapsToStatus: string,
+  position1Based: number,
+  task: any
+): any[] {
   const insertAt = Math.max(0, position1Based - 1);
   const out: any[] = [];
   let colDone = false;
   for (const t of prev) {
-    if (t.status !== columnStatus) {
+    if (!taskMatchesBoardColumn(t, boardListId, mapsToStatus)) {
       out.push(t);
       continue;
     }
     if (!colDone) {
-      const inCol = prev.filter((x) => x.status === columnStatus);
+      const inCol = prev.filter((x) => taskMatchesBoardColumn(x, boardListId, mapsToStatus));
       const col = [...inCol];
       col.splice(Math.min(insertAt, col.length), 0, task);
       out.push(...col);
@@ -47,7 +76,13 @@ function insertCopiedTaskInColumn(prev: any[], columnStatus: string, position1Ba
   return out;
 }
 
-function buildOptimisticCopyTask(source: any, tempId: string, title: string, status: string): any {
+function buildOptimisticCopyTask(
+  source: any,
+  tempId: string,
+  title: string,
+  status: string,
+  boardListId?: string | null
+): any {
   const checklists = Array.isArray(source?.checklists)
     ? source.checklists.map((cl: any) => ({
         ...cl,
@@ -64,6 +99,7 @@ function buildOptimisticCopyTask(source: any, tempId: string, title: string, sta
     id: tempId,
     title,
     status,
+    boardListId: boardListId ?? source?.boardListId ?? null,
     activities: [],
     attachments: [],
     checklists,
@@ -85,34 +121,138 @@ export default function BoardPage() {
   const [selectedTask, setSelectedTask] = useState<any>(null);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isMemberModalOpen, setIsMemberModalOpen] = useState(false);
+  const [boardLists, setBoardLists] = useState<ServerBoardList[]>([]);
   const [preselectedStatus, setPreselectedStatus] = useState<string>('PENDING');
-  const [boardBackground, setBoardBackground] = useState<string | null>(null);
+  const [preselectedBoardListId, setPreselectedBoardListId] = useState<string | null>(null);
+  /** Giao diện bảng riêng (nền + màu cột) — GET/PATCH `/me/board-view` */
+  const [myBoardView, setMyBoardView] = useState<{ background?: string | null; columnColors?: Record<string, string> | null } | null>(null);
   const lastBgUpdateRef = useRef<number>(0);
   const lastTaskUpdatesRef = useRef<Record<string, number>>({});
   const [isBackgroundPopoverOpen, setIsBackgroundPopoverOpen] = useState<boolean | 'bg'>(false);
   const [boardSearch, setBoardSearch] = useState('');
+  const [boardTemplateOptions, setBoardTemplateOptions] = useState<BoardTemplateOption[]>([]);
+  const [applyTemplateModalOpen, setApplyTemplateModalOpen] = useState(false);
+  const [applyHeaderTemplateId, setApplyHeaderTemplateId] = useState('');
+  const [applyHeaderSubmitting, setApplyHeaderSubmitting] = useState(false);
+  const [applyHeaderConfirmOpen, setApplyHeaderConfirmOpen] = useState(false);
+  const [editTemplateId, setEditTemplateId] = useState<string | null>(null);
+
+  const headerSelectedTemplateLists = useMemo(() => {
+    if (!applyHeaderTemplateId) return [];
+    return boardTemplateOptions.find((o) => o.id === applyHeaderTemplateId)?.lists ?? [];
+  }, [boardTemplateOptions, applyHeaderTemplateId]);
+
+  const headerSelectedTemplateOption = useMemo(
+    () => boardTemplateOptions.find((o) => o.id === applyHeaderTemplateId),
+    [boardTemplateOptions, applyHeaderTemplateId]
+  );
+
+  const templateBeingEdited = useMemo(
+    () =>
+      editTemplateId ? boardTemplateOptions.find((t) => t.id === editTemplateId) ?? null : null,
+    [editTemplateId, boardTemplateOptions]
+  );
 
   const { user } = useAuthStore() as { user: any };
+  const { setBoardBrandingBackground } = useBoardBranding();
 
   const myProjectMember = useMemo(
-    () => members.find((m: any) => m.userId === user?.id),
+    () =>
+      members.find(
+        (m: any) => m.userId === user?.id || m.user?.id === user?.id
+      ),
     [members, user?.id]
   );
+
+  const boardListsForCopy = useMemo(
+    () => boardLists.map((l) => ({ id: l.id, name: l.name, mapsToStatus: l.mapsToStatus })),
+    [boardLists]
+  );
+
+  /** Nền hiển thị: ưu tiên nền cá nhân, không có thì nền mặc định dự án */
+  const effectiveBoardBackground = useMemo(() => {
+    const personal = myBoardView?.background;
+    if (typeof personal === 'string' && personal.trim()) return personal;
+    const team = project?.background;
+    if (typeof team === 'string' && team.trim()) return team;
+    return null;
+  }, [myBoardView?.background, project?.background]);
+
+  /** Cột gộp màu chung + override cá nhân (chỉ ảnh hưởng màn hình của user) */
+  const mergedBoardLists = useMemo(() => {
+    const ov = myBoardView?.columnColors;
+    if (!ov || typeof ov !== 'object' || Array.isArray(ov)) return boardLists;
+    const map = ov as Record<string, string>;
+    return boardLists.map((l) => ({
+      ...l,
+      colorClass: map[l.id] ?? l.colorClass,
+    }));
+  }, [boardLists, myBoardView]);
+
+  const boardViewApiPath = projectId ? `/projects/${projectId}/me/board-view` : '';
+
+  const savePersonalColumnColor = useCallback(
+    async (listId: string, colorClass: string) => {
+      if (!projectId) return;
+      const base =
+        myBoardView?.columnColors && typeof myBoardView.columnColors === 'object' && !Array.isArray(myBoardView.columnColors)
+          ? { ...(myBoardView.columnColors as Record<string, string>) }
+          : {};
+      const columnColors = { ...base, [listId]: colorClass };
+      const { data } = await axiosInstance.patch(`/projects/${projectId}/me/board-view`, { columnColors });
+      setMyBoardView(data.boardView ?? null);
+    },
+    [projectId, myBoardView]
+  );
+
+  const isSystemAdmin = user?.role === 'ADMIN';
+  const canManageMembers =
+    isSystemAdmin ||
+    project?.myProjectRole === 'PROJECT_OWNER' ||
+    myProjectMember?.projectRole === 'PROJECT_OWNER';
+
+  /** Quản lý bảng theo projectRole: PROJECT_OWNER hoặc TEAM_LEAD trong dự án (+ admin hệ thống) */
+  const canManageBoard =
+    isSystemAdmin ||
+    project?.myProjectRole === 'PROJECT_OWNER' ||
+    myProjectMember?.projectRole === 'PROJECT_OWNER' ||
+    myProjectMember?.projectRole === 'TEAM_LEAD';
+
+  const refreshBoardTemplates = useCallback(() => {
+    if (!projectId || !canManageBoard) {
+      setBoardTemplateOptions([]);
+      return;
+    }
+    void axiosInstance
+      .get('/projects/board-templates')
+      .then((res) => {
+        const raw = res.data || [];
+        setBoardTemplateOptions((raw as any[]).map((t) => normalizeBoardTemplateOption(t)));
+      })
+      .catch(() => setBoardTemplateOptions([]));
+  }, [projectId, canManageBoard]);
+
+  useEffect(() => {
+    refreshBoardTemplates();
+  }, [refreshBoardTemplates]);
 
   const fetchData = useCallback(async () => {
     if (!projectId) return;
     try {
       setLoading(true);
-      const [projectRes, tasksRes, membersRes] = await Promise.all([
+      const [projectRes, tasksRes, membersRes, listsRes, viewRes] = await Promise.all([
         axiosInstance.get(`/projects/${projectId}`),
         axiosInstance.get(`/projects/${projectId}/tasks`),
-        axiosInstance.get(`/projects/${projectId}/members`)
+        axiosInstance.get(`/projects/${projectId}/members`),
+        axiosInstance.get(`/projects/${projectId}/board-lists`),
+        axiosInstance.get(`/projects/${projectId}/me/board-view`).catch(() => ({ data: { boardView: null } })),
       ]);
       const p = projectRes.data;
       setProject(p);
       setTasks(tasksRes.data);
       setMembers(membersRes.data);
-      setBoardBackground(typeof p?.background === 'string' && p.background.trim() ? p.background : null);
+      setBoardLists(listsRes.data || []);
+      setMyBoardView(viewRes.data?.boardView ?? null);
     } catch (error) {
       console.error('Error fetching board data:', error);
     } finally {
@@ -120,11 +260,137 @@ export default function BoardPage() {
     }
   }, [projectId]);
 
+  const refreshBoardListsOnly = useCallback(async () => {
+    if (!projectId) return;
+    try {
+      const listsRes = await axiosInstance.get(`/projects/${projectId}/board-lists`);
+      setBoardLists(listsRes.data || []);
+    } catch (e) {
+      console.error('Error fetching board lists:', e);
+    }
+  }, [projectId]);
+
+  const refreshTasksOnly = useCallback(async () => {
+    if (!projectId) return;
+    try {
+      const tasksRes = await axiosInstance.get(`/projects/${projectId}/tasks`);
+      setTasks(tasksRes.data);
+    } catch (e) {
+      console.error('Error fetching tasks:', e);
+    }
+  }, [projectId]);
+
+  useEffect(() => {
+    if (!applyTemplateModalOpen) return;
+    if (boardTemplateOptions.length === 0) {
+      setApplyHeaderTemplateId('');
+      return;
+    }
+    setApplyHeaderTemplateId((prev) =>
+      prev && boardTemplateOptions.some((o) => o.id === prev) ? prev : boardTemplateOptions[0].id
+    );
+  }, [applyTemplateModalOpen, boardTemplateOptions]);
+
+  const openHeaderApplyConfirm = useCallback(
+    (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!projectId || !applyHeaderTemplateId) return;
+      if (boardTemplateOptions.length === 0) {
+        toast.error('Chưa có template để áp dụng');
+        return;
+      }
+      setApplyHeaderConfirmOpen(true);
+    },
+    [projectId, applyHeaderTemplateId, boardTemplateOptions.length]
+  );
+
+  const executeHeaderApplyTemplate = useCallback(async () => {
+    if (!projectId || !applyHeaderTemplateId) return;
+    setApplyHeaderSubmitting(true);
+    try {
+      const { data } = await axiosInstance.post<{ boardLists?: ServerBoardList[] }>(
+        `/projects/${projectId}/board-templates/apply`,
+        { templateId: applyHeaderTemplateId }
+      );
+      toast.success('Đã áp dụng template');
+      setApplyHeaderConfirmOpen(false);
+      setApplyTemplateModalOpen(false);
+      if (data?.boardLists?.length) {
+        setBoardLists(data.boardLists);
+      } else {
+        await refreshBoardListsOnly();
+      }
+      await refreshTasksOnly();
+    } catch (err: unknown) {
+      const ax = err as { response?: { data?: { error?: string; message?: string } } };
+      toast.error(
+        ax.response?.data?.error || ax.response?.data?.message || 'Không áp dụng được template'
+      );
+    } finally {
+      setApplyHeaderSubmitting(false);
+    }
+  }, [projectId, applyHeaderTemplateId, refreshBoardListsOnly, refreshTasksOnly]);
+
   const { socket } = useSocket(projectId);
 
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  useEffect(() => {
+    setBoardBrandingBackground(effectiveBoardBackground);
+    return () => setBoardBrandingBackground(null);
+  }, [effectiveBoardBackground, setBoardBrandingBackground]);
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    let cancelled = false;
+
+    const applyFaviconHref = (href: string) => {
+      const mime = href.startsWith('data:image/png') ? 'image/png' : 'image/svg+xml';
+      for (const rel of FAVICON_LINK_RELS) {
+        const nodes = document.querySelectorAll<HTMLLinkElement>(`link[rel='${rel}']`);
+        if (nodes.length === 0) {
+          const el = document.createElement('link');
+          el.rel = rel;
+          el.type = mime;
+          el.href = href;
+          document.head.appendChild(el);
+          continue;
+        }
+        nodes.forEach((el) => {
+          el.type = mime;
+          el.href = href;
+        });
+      }
+    };
+
+    (async () => {
+      try {
+        const href = await buildAppFaviconDataUrl(effectiveBoardBackground);
+        if (!cancelled) applyFaviconHref(href);
+      } catch {
+        if (!cancelled) applyFaviconHref(APP_FAVICON_HREF);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [effectiveBoardBackground]);
+
+  useEffect(() => {
+    return () => {
+      if (typeof document === 'undefined') return;
+      const def = APP_FAVICON_HREF;
+      for (const rel of FAVICON_LINK_RELS) {
+        document.querySelectorAll<HTMLLinkElement>(`link[rel='${rel}']`).forEach((link) => {
+          link.type = 'image/svg+xml';
+          link.href = def;
+        });
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (tasks.length > 0 && router.query.taskId) {
@@ -143,7 +409,18 @@ export default function BoardPage() {
     if (!s) return;
 
     const hMoved = ({ taskId, status, task: updatedTask }: any) => {
-      setTasks((prev) => prev.map((t) => (t.id === taskId ? { ...t, status, ...updatedTask } : t)));
+      setTasks((prev) =>
+        prev.map((t) =>
+          t.id === taskId
+            ? {
+                ...t,
+                status,
+                ...(updatedTask?.boardListId !== undefined ? { boardListId: updatedTask.boardListId } : {}),
+                ...updatedTask,
+              }
+            : t
+        )
+      );
     };
 
     const hUpdated = (updatedTask: any) => {
@@ -192,14 +469,20 @@ export default function BoardPage() {
       setSelectedTask((prev: any) => (prev?.id === taskId ? null : prev));
     };
 
-    const hReordered = ({ taskIds, status, senderId }: any) => {
+    const hReordered = ({ taskIds, status, boardListId, senderId }: any) => {
       if (senderId === s.id) return;
       setTasks((prev) => {
         const otherTasks = prev.filter((t) => !taskIds.includes(t.id));
         const updatedTasksInStatus = taskIds
           .map((id: string) => {
             const task = prev.find((t) => t.id === id);
-            return task ? { ...task, status } : null;
+            return task
+              ? {
+                  ...task,
+                  status,
+                  ...(boardListId ? { boardListId } : {}),
+                }
+              : null;
           })
           .filter(Boolean);
         return [...otherTasks, ...updatedTasksInStatus] as any[];
@@ -212,7 +495,7 @@ export default function BoardPage() {
         if (senderId === s.id) return;
         if (updatedAt && updatedAt <= lastBgUpdateRef.current) return;
         if (updatedAt) lastBgUpdateRef.current = updatedAt;
-        setBoardBackground(typeof background === 'string' && background.trim() ? background : null);
+        /* Chỉ cập nhật nền mặc định dự án; hiển thị vẫn ưu tiên nền trong myBoardView */
         setProject((p: any) => (p ? { ...p, background } : p));
       }
     };
@@ -354,8 +637,12 @@ export default function BoardPage() {
     };
   }, [projectId, user?.id, myProjectMember]);
 
-  const handleOptimisticUpdate = useCallback((taskId: string, newStatus: string) => {
-    setTasks(prev => prev.map((t: any) => t.id === taskId ? { ...t, status: newStatus } : t));
+  const handleOptimisticUpdate = useCallback((taskId: string, newStatus: string, boardListId?: string | null) => {
+    setTasks((prev) =>
+      prev.map((t: any) =>
+        t.id === taskId ? { ...t, status: newStatus, boardListId: boardListId ?? t.boardListId } : t
+      )
+    );
   }, []);
 
   const handleOptimisticTaskPatch = useCallback((taskId: string, patch: Record<string, unknown>) => {
@@ -405,24 +692,33 @@ export default function BoardPage() {
     setTasks(prev => prev.map((t: any) => t.id === updatedTask.id ? { ...t, ...updatedTask } : t));
   }, []);
 
-  const handleOptimisticReorder = useCallback((taskIds: string[], status: string) => {
-    setTasks(prev => {
-      const otherTasks = prev.filter(t => !taskIds.includes(t.id));
-      const updatedTasksInStatus = taskIds.map((id: string) => {
-        const task = prev.find(t => t.id === id);
-        return task ? { ...task, status } : null;
-      }).filter(Boolean);
-      
+  const handleOptimisticReorder = useCallback((taskIds: string[], status: string, boardListId: string) => {
+    setTasks((prev) => {
+      const otherTasks = prev.filter((t) => !taskIds.includes(t.id));
+      const updatedTasksInStatus = taskIds
+        .map((id: string) => {
+          const task = prev.find((t) => t.id === id);
+          return task ? { ...task, status, boardListId } : null;
+        })
+        .filter(Boolean);
+
       return [...otherTasks, ...updatedTasksInStatus] as any[];
     });
   }, []);
 
   const handleOptimisticTaskCopy = useCallback(
-    (args: { tempId: string; title: string; status: string; position: number; sourceTask: any }) => {
-      const { tempId, title, status, position, sourceTask } = args;
-      const optimistic = buildOptimisticCopyTask(sourceTask, tempId, title, status);
+    (args: {
+      tempId: string;
+      title: string;
+      status: string;
+      boardListId: string | null;
+      position: number;
+      sourceTask: any;
+    }) => {
+      const { tempId, title, status, position, sourceTask, boardListId } = args;
+      const optimistic = buildOptimisticCopyTask(sourceTask, tempId, title, status, boardListId);
       lastTaskUpdatesRef.current[tempId] = Date.now();
-      setTasks((prev) => insertCopiedTaskInColumn(prev, status, position, optimistic));
+      setTasks((prev) => insertCopiedTaskInColumn(prev, boardListId, status, position, optimistic));
     },
     []
   );
@@ -456,7 +752,7 @@ export default function BoardPage() {
         <div className="h-full flex items-center justify-center">
            <div className="flex flex-col items-center space-y-4">
               <div className="w-10 h-10 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin" />
-              <span className="text-sm font-bold text-slate-500 uppercase tracking-widest animate-pulse">Initializing Board...</span>
+              <span className="text-sm font-bold text-slate-500 uppercase tracking-widest animate-pulse">Đang khởi tạo bảng...</span>
            </div>
         </div>
       </MainLayout>
@@ -470,28 +766,51 @@ export default function BoardPage() {
       </Head>
       <div
         className="relative z-[1] flex h-full min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden board-page-active"
-        style={boardBackground ? getBoardBackgroundStyle(boardBackground) : undefined}
+        style={effectiveBoardBackground ? getBoardBackgroundStyle(effectiveBoardBackground) : undefined}
       >
         <div className="shrink-0 px-10 pt-6">
           <PageHeader 
             title={project?.name ? `${project.name} / Bảng công việc` : 'Bảng công việc'}
             breadcrumbs={
             <div className="flex items-center text-xs font-bold text-slate-400 uppercase tracking-widest gap-2">
-              <Link href="/projects" className="hover:text-emerald-500 transition-colors">Projects</Link>
+              <Link href="/projects" className="hover:text-emerald-500 transition-colors">Dự án</Link>
               <ChevronRight className="h-3 w-3" />
-              <span className="text-slate-600">{project?.name}</span>
+              <Link href={`/projects/${projectId}`} className="hover:text-emerald-500 transition-colors">
+                Chi tiết
+              </Link>
+              <ChevronRight className="h-3 w-3" />
+              <span className="text-slate-600">Bảng</span>
             </div>
           }
           actions={
             <div className="flex items-center gap-2">
-               <button 
-                 onClick={() => setIsMemberModalOpen(true)}
-                 className="px-3 py-2 bg-white/80 backdrop-blur-sm border border-white/60 rounded-xl text-slate-600 hover:bg-white transition-all shadow-sm flex items-center gap-2"
-                 title="Manage Members"
-               >
-                  <Users className="h-4 w-4" />
-                  <span className="text-sm font-bold hidden sm:inline-block">Members</span>
-               </button>
+               {canManageBoard && (
+                 <button
+                   type="button"
+                   onClick={() => {
+                     setIsBackgroundPopoverOpen(false);
+                     setApplyTemplateModalOpen(true);
+                     refreshBoardTemplates();
+                   }}
+                   className="px-3 py-2 bg-white/80 backdrop-blur-sm border border-white/60 rounded-xl text-slate-600 hover:bg-white transition-all shadow-sm flex items-center gap-2"
+                   title="Template cột bảng"
+                 >
+                   <Wand2 className="h-4 w-4 text-amber-600" />
+                  <span className="text-sm font-bold hidden sm:inline-block">Mẫu cột</span>
+                 </button>
+               )}
+
+               {canManageMembers && (
+                 <button
+                   type="button"
+                   onClick={() => setIsMemberModalOpen(true)}
+                   className="px-3 py-2 bg-white/80 backdrop-blur-sm border border-white/60 rounded-xl text-slate-600 hover:bg-white transition-all shadow-sm flex items-center gap-2"
+                  title="Quản lý thành viên"
+                 >
+                   <Users className="h-4 w-4" />
+                  <span className="text-sm font-bold hidden sm:inline-block">Thành viên</span>
+                 </button>
+               )}
 
                {/* Settings Gear Dropdown */}
                <div className="relative">
@@ -502,7 +821,7 @@ export default function BoardPage() {
                        ? 'bg-white border-slate-300 text-slate-800'
                        : 'bg-white/80 border-white/60 text-slate-600 hover:bg-white'
                    }`}
-                   title="Board Settings"
+                  title="Cài đặt bảng"
                  >
                    <Settings className="h-4 w-4" />
                  </button>
@@ -512,12 +831,26 @@ export default function BoardPage() {
                    <div className="absolute right-0 top-full mt-2 w-52 bg-white rounded-2xl border border-slate-200 shadow-2xl z-40 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
                      {/* Dropdown Header */}
                      <div className="px-4 py-3 border-b border-slate-100 bg-slate-50">
-                       <p className="text-xs font-black text-slate-500 uppercase tracking-widest">Board Settings</p>
+                      <p className="text-xs font-black text-slate-500 uppercase tracking-widest">Cài đặt bảng</p>
                      </div>
 
                      {/* Dropdown Items */}
                      <div className="py-2">
-                       {/* Change Background - opens sub-popover */}
+                       {canManageBoard ? (
+                         <button
+                           type="button"
+                           onClick={(e) => {
+                             e.stopPropagation();
+                             setIsBackgroundPopoverOpen(false);
+                             setApplyTemplateModalOpen(true);
+                             refreshBoardTemplates();
+                           }}
+                           className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-slate-50 text-sm text-slate-700 font-medium transition-colors"
+                         >
+                           <LayoutTemplate className="h-4 w-4 text-amber-500" />
+                          <span className="whitespace-nowrap">Mẫu cột</span>
+                         </button>
+                       ) : null}
                        <div className="relative group">
                          <button
                            onClick={(e) => {
@@ -528,11 +861,11 @@ export default function BoardPage() {
                            className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-slate-50 text-sm text-slate-700 font-medium transition-colors"
                          >
                            <ImageIcon className="h-4 w-4 text-slate-400" />
-                           <span className="whitespace-nowrap">Change Background</span>
-                           {boardBackground && (
+                          <span className="whitespace-nowrap">Đổi nền bảng</span>
+                           {effectiveBoardBackground && (
                              <div
                                className="ml-auto w-5 h-5 rounded-full border border-slate-200 shadow-sm overflow-hidden"
-                               style={getBoardBackgroundStyle(boardBackground)}
+                               style={getBoardBackgroundStyle(effectiveBoardBackground)}
                              />
                            )}
                          </button>
@@ -545,15 +878,14 @@ export default function BoardPage() {
                  )}
 
                  {/* Background Popover sub-panel */}
-                 {isBackgroundPopoverOpen === 'bg' && projectId && (
+                 {isBackgroundPopoverOpen === 'bg' && projectId && boardViewApiPath && (
                    <BoardBackgroundPopover
-                     projectId={projectId}
-                     currentBackground={boardBackground}
+                     boardViewPath={boardViewApiPath}
+                     currentBackground={effectiveBoardBackground}
                      onClose={() => setIsBackgroundPopoverOpen(false)}
                      onBackgroundChange={(bg) => {
                        lastBgUpdateRef.current = Date.now();
-                       setBoardBackground(bg);
-                       setProject((prev: any) => (prev ? { ...prev, background: bg } : prev));
+                       setMyBoardView((prev) => ({ ...(prev || {}), background: bg }));
                        setIsBackgroundPopoverOpen(false);
                      }}
                    />
@@ -583,6 +915,11 @@ export default function BoardPage() {
               projectId={projectId!} 
               projectName={project?.name || 'Bảng dự án'}
               tasks={tasks}
+              boardLists={mergedBoardLists}
+              canManageBoard={canManageBoard}
+              persistColumnColorPersonal={savePersonalColumnColor}
+              onRefreshBoardLists={refreshBoardListsOnly}
+              onRefreshBoardTemplates={refreshBoardTemplates}
               searchTerm={boardSearch}
               onTaskUpdate={fetchData} 
               onOptimisticUpdate={handleOptimisticUpdate}
@@ -593,8 +930,9 @@ export default function BoardPage() {
               onCopyTaskConfirm={handleCopyTaskConfirm}
               onCopyTaskRollback={handleCopyTaskRollback}
               onTaskClick={(task) => setSelectedTask(task)}
-              onAddTask={(status) => {
-                setPreselectedStatus(status);
+              onAddTask={(listId, mapsToStatus) => {
+                setPreselectedBoardListId(listId);
+                setPreselectedStatus(mapsToStatus);
                 setIsCreateModalOpen(true);
               }}
            />
@@ -602,6 +940,141 @@ export default function BoardPage() {
         </div>
       </div>
       
+      {applyTemplateModalOpen && (
+        <div className="fixed inset-0 z-[12000] flex items-center justify-center p-4">
+          <button
+            type="button"
+            className="absolute inset-0 bg-slate-900/50"
+            aria-label="Đóng"
+            disabled={applyHeaderSubmitting}
+            onClick={() => {
+              if (!applyHeaderSubmitting) setApplyTemplateModalOpen(false);
+            }}
+          />
+          <div
+            className="relative z-10 w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="apply-template-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 id="apply-template-title" className="text-lg font-bold text-slate-800 flex items-center gap-2">
+              <Wand2 className="h-5 w-5 text-amber-600 shrink-0" />
+              Mẫu cột
+            </h2>
+            <p className="mt-2 text-sm text-slate-600">
+              Thay toàn bộ cột bảng. Thẻ chưa lưu trữ được gán vào cột cùng trạng thái (hoặc cột mặc định nếu không khớp).
+            </p>
+            {boardTemplateOptions.length === 0 ? (
+              <div className="mt-4 space-y-3">
+                <p className="text-sm text-amber-900 bg-amber-50 rounded-xl px-3 py-2 border border-amber-100">
+                  Chưa có template. Đảm bảo backend đã chạy và có template gốc; hoặc dùng « Lưu template bảng » ở cột cuối bên phải trên bảng, rồi « Thử tải lại » bên dưới.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => refreshBoardTemplates()}
+                    className="flex-1 min-w-[8rem] rounded-xl bg-slate-100 py-2.5 text-sm font-bold text-slate-700 hover:bg-slate-200 transition-colors"
+                  >
+                    Thử tải lại
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setApplyTemplateModalOpen(false)}
+                    className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-50 transition-colors"
+                  >
+                    Đóng
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <form onSubmit={openHeaderApplyConfirm} className="mt-4 space-y-4">
+                <div>
+                  <label htmlFor="apply-template-select" className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                    Mẫu
+                  </label>
+                  <select
+                    id="apply-template-select"
+                    value={applyHeaderTemplateId}
+                    onChange={(e) => setApplyHeaderTemplateId(e.target.value)}
+                    className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm"
+                  >
+                    {boardTemplateOptions.map((opt) => (
+                      <option key={opt.id} value={opt.id}>
+                        {opt.name}
+                        {opt.isBuiltIn === true ? '' : ' — của bạn'}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                {applyHeaderTemplateId ? (
+                  <BoardTemplatePreview
+                    lists={headerSelectedTemplateLists}
+                    templateId={applyHeaderTemplateId}
+                  />
+                ) : null}
+                {headerSelectedTemplateOption ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setApplyTemplateModalOpen(false);
+                      setEditTemplateId(applyHeaderTemplateId);
+                    }}
+                    className="flex w-full items-center justify-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50/80 py-2.5 text-sm font-bold text-indigo-800 hover:bg-indigo-100"
+                  >
+                    <Pencil className="h-4 w-4 shrink-0" />
+                    {headerSelectedTemplateOption.isBuiltIn === true
+                      ? 'Chỉnh và lưu thành template cá nhân'
+                      : 'Chỉnh sửa template này'}
+                  </button>
+                ) : null}
+                <div className="flex gap-2 justify-end pt-1">
+                  <button
+                    type="button"
+                    disabled={applyHeaderSubmitting}
+                    onClick={() => setApplyTemplateModalOpen(false)}
+                    className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-bold text-slate-600 disabled:opacity-50"
+                  >
+                    Hủy
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={applyHeaderSubmitting || !applyHeaderTemplateId}
+                    className="rounded-xl bg-amber-600 px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50"
+                  >
+                    {applyHeaderSubmitting ? '…' : 'Áp dụng template'}
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
+
+      <EditBoardTemplateModal
+        isOpen={!!editTemplateId}
+        template={templateBeingEdited}
+        onClose={() => setEditTemplateId(null)}
+        onSaved={() => {
+          refreshBoardTemplates();
+          setEditTemplateId(null);
+        }}
+      />
+
+      <ConfirmModal
+        isOpen={applyHeaderConfirmOpen}
+        title="Áp dụng template?"
+        description="Thay toàn bộ cột bảng bằng template đã chọn. Thẻ chưa lưu trữ sẽ được xếp vào cột đúng trạng thái; trạng thái không có trong template sẽ gán vào « Chờ xử lý » hoặc cột đầu tiên."
+        confirmLabel="Áp dụng"
+        cancelLabel="Hủy"
+        variant="primary"
+        isLoading={applyHeaderSubmitting}
+        onConfirm={executeHeaderApplyTemplate}
+        onCancel={() => {
+          if (!applyHeaderSubmitting) setApplyHeaderConfirmOpen(false);
+        }}
+      />
+
       {/* Task Detail Modal */}
       <TaskDetailModal 
         isOpen={!!selectedTask}
@@ -609,13 +1082,16 @@ export default function BoardPage() {
         task={selectedTask}
         projectId={projectId as string}
         projectName={project?.name || 'Bảng dự án'}
-        boardTasks={tasks.map((t) => ({ id: t.id, status: t.status }))}
+        boardTasks={tasks.map((t) => ({ id: t.id, status: t.status, boardListId: t.boardListId }))}
+        boardListsForCopy={boardListsForCopy}
         onOptimisticTaskCopy={handleOptimisticTaskCopy}
         onCopyTaskConfirm={handleCopyTaskConfirm}
         onCopyTaskRollback={handleCopyTaskRollback}
         onUpdate={fetchData}
         onDataChange={handleLocalTaskUpdate}
         projectMembersList={members}
+        projectOwnerId={project?.ownerId}
+        canDuplicateCard={canManageBoard}
       />
 
       <CreateTaskModal
@@ -624,11 +1100,14 @@ export default function BoardPage() {
         projectId={projectId as string}
         departments={[]} // Fetch if needed, but usually empty for project-scoped tasks
         members={members}
+        boardLists={boardListsForCopy}
         onSuccess={fetchData}
         initialStatus={preselectedStatus}
+        initialBoardListId={preselectedBoardListId}
+        projectOwnerId={project?.ownerId}
       />
       
-      {project && (
+      {project && canManageMembers && (
         <ManageMemberModal
           isOpen={isMemberModalOpen}
           onClose={() => setIsMemberModalOpen(false)}

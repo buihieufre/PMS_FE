@@ -1,8 +1,6 @@
 import React, { Fragment, useState } from 'react';
 import { Popover, Transition } from '@headlessui/react';
 import { Check, X, Search, User } from 'lucide-react';
-import axiosInstance from '@/lib/axios';
-import { toast } from 'sonner';
 
 interface Member {
   id: string; // The userId usually
@@ -20,9 +18,18 @@ interface AssigneePopoverProps {
   projectMembers: Member[];
   selectedAssignees: any[];
   onUpdate: (newAssigneeIds: string[], updatedAssignees: any[]) => void;
+  /** false = chỉ xem (chỉ chủ dự án / người tạo project mới được gán người khác) */
+  allowChange?: boolean;
 }
 
-export default function AssigneePopover({ projectId, taskId, projectMembers, selectedAssignees, onUpdate }: AssigneePopoverProps) {
+export default function AssigneePopover({
+  projectId,
+  taskId,
+  projectMembers,
+  selectedAssignees,
+  onUpdate,
+  allowChange = true,
+}: AssigneePopoverProps) {
   const [searchTerm, setSearchTerm] = useState('');
 
   const handleToggleAssignee = (member: Member) => {
@@ -43,6 +50,18 @@ export default function AssigneePopover({ projectId, taskId, projectMembers, sel
     m.user.displayName.toLowerCase().includes(searchTerm.toLowerCase()) || 
     m.user.email.toLowerCase().includes(searchTerm.toLowerCase())
   );
+
+  if (!allowChange) {
+    return (
+      <div
+        className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md border border-slate-200 bg-slate-50 text-slate-500 text-sm cursor-default"
+        title="Chỉ người tạo dự án mới gán được thẻ cho thành viên khác."
+      >
+        <User className="h-4 w-4 shrink-0" />
+        <span>Thành viên</span>
+      </div>
+    );
+  }
 
   return (
     <Popover className="relative inline-block text-left">

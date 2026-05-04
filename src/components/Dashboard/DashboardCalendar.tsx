@@ -70,7 +70,7 @@ const isSameDay = (d1: Date, d2: Date) =>
 
 const formatDateLabel = (date: Date, view: 'month' | 'week') => {
   if (view === 'month') {
-    return date.toLocaleString('default', { month: 'long', year: 'numeric' });
+    return date.toLocaleString('vi-VN', { month: 'long', year: 'numeric' });
   } else {
     // Week view: "Feb 10 - Feb 16, 2024"
     const startOfWeek = new Date(date);
@@ -81,8 +81,8 @@ const formatDateLabel = (date: Date, view: 'month' | 'week') => {
     const endOfWeek = new Date(startOfWeek);
     endOfWeek.setDate(startOfWeek.getDate() + 6);
     
-    const startStr = startOfWeek.toLocaleString('default', { month: 'short', day: 'numeric' });
-    const endStr = endOfWeek.toLocaleString('default', { month: 'short', day: 'numeric', year: 'numeric' });
+    const startStr = startOfWeek.toLocaleString('vi-VN', { month: 'short', day: 'numeric' });
+    const endStr = endOfWeek.toLocaleString('vi-VN', { month: 'short', day: 'numeric', year: 'numeric' });
     return `${startStr} - ${endStr}`;
   }
 };
@@ -123,8 +123,8 @@ export default function DashboardCalendar({ tasks = [], onTaskClick, onAddTask }
   }, [daysRaw, showWeekends]);
 
   const weekdays = showWeekends 
-    ? ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
-    : ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+    ? ['Thứ hai', 'Thứ ba', 'Thứ tư', 'Thứ năm', 'Thứ sáu', 'Thứ bảy', 'Chủ nhật']
+    : ['Thứ hai', 'Thứ ba', 'Thứ tư', 'Thứ năm', 'Thứ sáu'];
 
   const next = () => {
     if (viewMode === 'month') {
@@ -154,13 +154,13 @@ export default function DashboardCalendar({ tasks = [], onTaskClick, onAddTask }
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
           <input 
             type="text" 
-            placeholder="Search" 
+            placeholder="Tìm kiếm" 
             className="w-full pl-10 pr-4 py-2 bg-slate-50 border-transparent focus:bg-white focus:border-emerald-200 rounded-lg text-sm outline-none transition-all"
           />
         </div>
 
         <div className="flex flex-col items-center">
-            <h2 className="text-xl font-bold text-slate-800">Calendar</h2>
+            <h2 className="text-xl font-bold text-slate-800">Lịch</h2>
           <div className="flex items-center space-x-4 mt-2">
                <button onClick={prev} className="p-1 hover:bg-slate-100 rounded text-slate-400 transition-colors"><ChevronLeft className="h-4 w-4" /></button>
                <span className="text-sm font-semibold text-slate-600 min-w-[200px] text-center">{formatDateLabel(currentDate, viewMode)}</span>
@@ -174,13 +174,13 @@ export default function DashboardCalendar({ tasks = [], onTaskClick, onAddTask }
                 onClick={() => setViewMode('week')}
                 className={`px-3 py-1 text-xs font-semibold rounded-md transition-all ${viewMode === 'week' ? 'bg-emerald-500 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-200'}`}
              >
-                Week
+                Tuần
              </button>
              <button 
                 onClick={() => setViewMode('month')}
                 className={`px-3 py-1 text-xs font-semibold rounded-md transition-all ${viewMode === 'month' ? 'bg-emerald-500 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-200'}`}
              >
-                Month
+                Tháng
              </button>
           </div>
           <button className="p-2 text-slate-400 hover:bg-slate-100 rounded-lg transition-colors"><MoreHorizontal className="h-5 w-5" /></button>
@@ -242,15 +242,18 @@ export default function DashboardCalendar({ tasks = [], onTaskClick, onAddTask }
               onClick={() => setShowWeekends(!showWeekends)}
               className={`px-4 py-2 rounded-full text-xs font-bold transition-colors ${showWeekends ? 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}
             >
-              {showWeekends ? 'Hide Weekends' : 'Show Weekends'}
+              {showWeekends ? 'Ẩn cuối tuần' : 'Hiện cuối tuần'}
             </button>
-            <button 
-              onClick={() => onAddTask?.(currentDate)}
-              className="px-4 py-2 bg-emerald-500 text-white rounded-full text-xs font-bold shadow-md hover:shadow-lg hover:scale-105 transition-all flex items-center space-x-1"
-            >
+            {onAddTask ? (
+              <button
+                type="button"
+                onClick={() => onAddTask(currentDate)}
+                className="px-4 py-2 bg-emerald-500 text-white rounded-full text-xs font-bold shadow-md hover:shadow-lg hover:scale-105 transition-all flex items-center space-x-1"
+              >
                 <Plus className="h-3 w-3" />
-                <span>Add task</span>
-            </button>
+                <span>Thêm công việc</span>
+              </button>
+            ) : null}
           </div>
       </div>
     </div>

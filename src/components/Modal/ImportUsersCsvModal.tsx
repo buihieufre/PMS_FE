@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { X, Loader2, Upload, FileDown, FileSpreadsheet, AlertCircle } from 'lucide-react';
+import { X, Loader2, Upload, FileDown, AlertCircle } from 'lucide-react';
 import axiosInstance from '@/lib/axios';
 import { toast } from 'sonner';
 import {
@@ -30,7 +30,6 @@ export default function ImportUsersCsvModal({ isOpen, onClose, onSuccess }: Impo
   const [parseErrors, setParseErrors] = useState<string[]>([]);
   const [fileName, setFileName] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isExcelLoading, setIsExcelLoading] = useState(false);
   const [lastResult, setLastResult] = useState<{
     success: number;
     failed: { rowIndex: number; email: string; error: string }[];
@@ -60,19 +59,6 @@ export default function ImportUsersCsvModal({ isOpen, onClose, onSuccess }: Impo
     a.download = 'mau-import-nguoi-dung-chi-tiet.csv';
     a.click();
     URL.revokeObjectURL(url);
-  };
-
-  const downloadExcelTemplate = async () => {
-    try {
-      setIsExcelLoading(true);
-      const { downloadUserImportWorkbook } = await import('@/lib/buildUserImportWorkbook');
-      await downloadUserImportWorkbook();
-      toast.success('Đã tải file Excel mẫu (1 sheet)');
-    } catch {
-      toast.error('Không tạo được file Excel');
-    } finally {
-      setIsExcelLoading(false);
-    }
   };
 
   const handleFile = async (file: File | null) => {
@@ -149,36 +135,20 @@ export default function ImportUsersCsvModal({ isOpen, onClose, onSuccess }: Impo
               <span className="font-medium text-slate-800">trùng khớp</span> dữ liệu đã có trong PMS.
             </p>
             <p className="text-xs text-slate-500">
-              File mẫu gồm nhiều dòng ví dụ (EMPLOYEE, LEAD, OWNER, FREELANCER, CLIENT). Có thể tải CSV hoặc Excel (một sheet, cùng nội dung); khi
-              import vẫn dùng file <strong>.csv</strong>.
+              File CSV mẫu có sẵn vài dòng ví dụ (EMPLOYEE, LEAD, OWNER). Tải file mẫu UTF-8 bên dưới, chỉnh sửa rồi import lại{' '}
+              <strong>.csv</strong>.
             </p>
           </div>
 
-          <div className="flex flex-wrap gap-3 items-center">
-            <button
-              type="button"
-              onClick={() => void downloadExcelTemplate()}
-              disabled={isExcelLoading}
-              className="flex items-center gap-2 text-sm font-medium text-emerald-700 hover:text-emerald-900 disabled:opacity-60"
-            >
-              {isExcelLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileSpreadsheet className="h-4 w-4" />}
-              Tải Excel mẫu
-            </button>
+          <div>
             <button
               type="button"
               onClick={downloadTemplate}
-              className="flex items-center gap-2 text-sm font-medium text-indigo-600 hover:text-indigo-800"
+              className="flex w-full items-center justify-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50/80 px-4 py-3 text-sm font-semibold text-indigo-800 transition-colors hover:bg-indigo-100"
             >
-              <FileDown className="h-4 w-4" />
-              Tải CSV mẫu (UTF-8)
+              <FileDown className="h-4 w-4 shrink-0" />
+              Tải file CSV mẫu (UTF-8)
             </button>
-            <a
-              href="/mau-import-nguoi-dung-chi-tiet.csv"
-              download="mau-import-nguoi-dung-chi-tiet.csv"
-              className="text-sm text-slate-500 hover:text-slate-800 underline underline-offset-2"
-            >
-              Mở CSV trong public
-            </a>
           </div>
 
           <div>

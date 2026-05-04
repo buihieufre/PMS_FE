@@ -16,11 +16,15 @@ const ROLES = [
   { value: 'PROJECT_OWNER', label: 'Chủ dự án' },
   { value: 'TEAM_LEAD', label: 'Trưởng nhóm' },
   { value: 'EMPLOYEE', label: 'Nhân viên' },
-  { value: 'FREELANCER', label: 'Freelancer' },
-  { value: 'CLIENT', label: 'Khách hàng' },
 ];
 
 type Tab = 'department' | 'email';
+
+const SYSTEM_ROLE_TO_PROJECT_ROLE_LABEL: Record<string, string> = {
+  OWNER: 'Chủ dự án',
+  LEAD: 'Trưởng nhóm',
+  EMPLOYEE: 'Nhân viên',
+};
 
 export default function ManageMemberModal({ isOpen, onClose, projectId, departmentId, existingMember, onSuccess }: ManageMemberModalProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -29,7 +33,7 @@ export default function ManageMemberModal({ isOpen, onClose, projectId, departme
   // Form State
   const [email, setEmail] = useState('');
   const [displayName, setDisplayName] = useState('');
-  const [projectRole, setProjectRole] = useState('EMPLOYEE');
+  const [projectRole, setProjectRole] = useState('');
 
   // Data State
   const [departments, setDepartments] = useState<any[]>([]);
@@ -93,7 +97,7 @@ export default function ManageMemberModal({ isOpen, onClose, projectId, departme
         // Add Mode
         setEmail('');
         setDisplayName('');
-        setProjectRole('EMPLOYEE');
+        setProjectRole('');
         setSearchTerm('');
         setActiveTab('department');
       }
@@ -115,8 +119,12 @@ export default function ManageMemberModal({ isOpen, onClose, projectId, departme
 
   const handleSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (!email || !projectRole) {
-      toast.error('Vui lòng chọn người dùng và vai trò');
+    if (!email) {
+      toast.error('Vui lòng chọn người dùng');
+      return;
+    }
+    if (existingMember && !projectRole) {
+      toast.error('Vui lòng chọn vai trò');
       return;
     }
 
@@ -128,10 +136,9 @@ export default function ManageMemberModal({ isOpen, onClose, projectId, departme
         });
         toast.success('Đã cập nhật vai trò thành viên');
       } else {
-        await axiosInstance.post(`/projects/${projectId}/members`, {
-          email,
-          projectRole
-        });
+        const payload: { email: string; projectRole?: string } = { email };
+        if (projectRole) payload.projectRole = projectRole;
+        await axiosInstance.post(`/projects/${projectId}/members`, payload);
         toast.success('Đã chọn thành viên vào dự án');
       }
       onSuccess();
@@ -147,6 +154,10 @@ export default function ManageMemberModal({ isOpen, onClose, projectId, departme
     u.email.toLowerCase().includes(searchTerm.toLowerCase()) || 
     u.displayName.toLowerCase().includes(searchTerm.toLowerCase())
   );
+
+  const selectedUser = [...usersInDept, ...globalUsers].find((u) => u.email === email);
+  const mappedRoleLabel =
+    SYSTEM_ROLE_TO_PROJECT_ROLE_LABEL[(selectedUser?.role?.name || '').toUpperCase()] || null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-[2px] p-4 animate-in fade-in duration-200">
@@ -211,6 +222,13 @@ export default function ManageMemberModal({ isOpen, onClose, projectId, departme
                     </button>
                  ))}
               </div>
+              {!existingMember && !projectRole && (
+                <p className="text-[11px] text-slate-500 mt-1">
+                  {mappedRoleLabel
+                    ? `Sẽ tự gán mặc định: ${mappedRoleLabel}.`
+                    : 'Nếu không xác định được role hệ thống, bạn sẽ cần chọn role thủ công khi lưu.'}
+                </p>
+              )}
            </div>
 
            <div className="h-px bg-slate-100 w-full" />
@@ -315,7 +333,12 @@ export default function ManageMemberModal({ isOpen, onClose, projectId, departme
 
                          {isSearchOpen && (
                             <div className="absolute z-20 w-full mt-2 bg-white border border-slate-200 rounded-2xl shadow-2xl max-h-60 overflow-y-auto overflow-x-hidden p-1 custom-scrollbar animate-in fade-in slide-in-from-top-2">
-                               {filteredGlobalUsers.length === 0 ? (
+                               {loadingUsers ? (
+                                  <div className="px-4 py-8 flex flex-col items-center justify-center space-y-2 opacity-70">
+                                     <Loader2 className="h-4 w-4 animate-spin text-slate-400" />
+                                     <span className="text-[10px] font-semibold text-slate-400">Đang tải dữ liệu thành viên...</span>
+                                  </div>
+                               ) : filteredGlobalUsers.length === 0 ? (
                                   <div className="px-4 py-8 text-center text-xs text-slate-400 font-medium italic">
                                      Không tìm thấy người dùng nào phù hợp
                                   </div>

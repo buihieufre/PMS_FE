@@ -32,6 +32,8 @@ export type BoardTask = {
 
   status: string;
 
+  boardListId?: string | null;
+
   dueDate?: string;
 
   startDate?: string;

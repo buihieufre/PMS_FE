@@ -5,17 +5,20 @@ import axiosInstance from '@/lib/axios';
 import { toast } from 'sonner';
 import MainLayout from '@/components/Layout/MainLayout';
 import Link from 'next/link';
-import { ArrowLeft, Users, CheckSquare, Info, Plus, Trash2, MoreVertical, Search as SearchIcon, Edit2, Clock, LayoutDashboard } from 'lucide-react';
+import { ArrowLeft, Info, Plus, Trash2, MoreVertical, Search as SearchIcon, Edit2, LayoutDashboard, FileText, Image as ImageIcon, Paperclip } from 'lucide-react';
 import { useAuthStore } from '@/store/authStore';
 import { PageHeader } from '@/components/Layout/PageHeader';
-import CreateTaskModal from '@/components/Modal/CreateTaskModal';
 import ManageMemberModal from '@/components/Modal/ManageMemberModal';
 import DashboardCalendar from '@/components/Dashboard/DashboardCalendar';
+import { parseTaskDescriptionData } from '@/lib/taskDescription';
 
 interface Project {
   id: string;
   name: string;
+  description?: string;
   ownerId: string;
+  projectAttachments?: { id: string; fileUrl: string; fileName: string }[];
+  myProjectRole?: string | null;
   owner: {
     id: string;
     displayName: string;
@@ -34,8 +37,8 @@ export default function ProjectDashboard() {
   const [members, setMembers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   
-  const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
   const [isMemberModalOpen, setIsMemberModalOpen] = useState(false);
+  const [isProjectDetailModalOpen, setIsProjectDetailModalOpen] = useState(false);
   const [selectedMember, setSelectedMember] = useState<any>(null);
   
   const [memberSearchTerm, setMemberSearchTerm] = useState('');
@@ -55,7 +58,7 @@ export default function ProjectDashboard() {
       if (tasksRes.status === 'fulfilled') setTasks(tasksRes.value.data);
       if (membersRes.status === 'fulfilled') setMembers(membersRes.value.data);
     } catch (error) {
-      console.error('Failed to fetch dashboard data', error);
+      console.error('Không thể tải dữ liệu tổng quan dự án', error);
     } finally {
       setLoading(false);
     }
@@ -68,11 +71,25 @@ export default function ProjectDashboard() {
       toast.success('Đã xóa thành viên');
       fetchDashboardData();
     } catch (error: any) {
-      toast.error(error.response?.data?.error || 'Failed to remove member');
+      toast.error(error.response?.data?.error || 'Không thể xóa thành viên');
     }
   };
 
-  const isOwnerOrAdmin = user?.role === 'Admin' || user?.id === project?.ownerId;
+  const myRoleFromMembers = useMemo(
+    () =>
+      members.find((m: any) => m.userId === user?.id || m.user?.id === user?.id)
+        ?.projectRole ?? null,
+    [members, user?.id]
+  );
+  const effectiveMyProjectRole = project?.myProjectRole ?? myRoleFromMembers;
+
+  const isSystemAdmin = user?.role === 'ADMIN';
+  const canManageMembers =
+    isSystemAdmin || effectiveMyProjectRole === 'PROJECT_OWNER';
+  const canCreateTasks =
+    isSystemAdmin ||
+    effectiveMyProjectRole === 'PROJECT_OWNER' ||
+    effectiveMyProjectRole === 'TEAM_LEAD';
 
   useEffect(() => {
     if (router.isReady && projectId) {
@@ -80,7 +97,28 @@ export default function ProjectDashboard() {
     }
   }, [router.isReady, projectId]);
 
-  // Project-specific stats for the sidebar
+  const projectDescriptionText = useMemo(() => {
+    if (!project?.description) return '';
+    const parsed = parseTaskDescriptionData(project.description);
+    const lines: string[] = [];
+    for (const block of parsed.blocks || []) {
+      const d = block?.data || {};
+      if (typeof d.text === 'string' && d.text.trim()) {
+        lines.push(d.text.replace(/<[^>]+>/g, '').trim());
+        continue;
+      }
+      if (block?.type === 'list' && Array.isArray(d.items)) {
+        for (const item of d.items) {
+          const text =
+            typeof item === 'string' ? item : typeof item?.content === 'string' ? item.content : '';
+          if (text.trim()) lines.push(`- ${text.replace(/<[^>]+>/g, '').trim()}`);
+        }
+      }
+    }
+    return lines.join('\n').trim();
+  }, [project?.description]);
+
+  // Thống kê nhanh theo dữ liệu dự án
   const stats = useMemo(() => {
     const total = tasks.length;
     const approved = tasks.filter(t => t.status === 'APPROVED' || t.status === 'DONE').length;
@@ -98,7 +136,7 @@ export default function ProjectDashboard() {
   return (
     <MainLayout>
       <Head>
-        <title>{project ? `${project.name} | PMS` : 'Project | PMS'}</title>
+        <title>{project ? `${project.name} | PMS` : 'Dự án | PMS'}</title>
       </Head>
       <div className="flex flex-col h-full bg-slate-50 min-h-[calc(100vh-64px)]">
         <PageHeader 
@@ -120,13 +158,13 @@ export default function ProjectDashboard() {
                 <LayoutDashboard className="h-4 w-4 mr-2" />
                 Mở bảng công việc
               </Link>
-               {isOwnerOrAdmin && (
+               {canCreateTasks && (
                  <button 
-                   onClick={() => setIsTaskModalOpen(true)}
+                   onClick={() => setIsProjectDetailModalOpen(true)}
                    className="px-6 py-2.5 text-sm font-bold bg-emerald-600 text-white rounded-xl shadow-lg shadow-emerald-100 hover:bg-emerald-700 transition-all flex items-center active:scale-95"
                  >
-                   <Plus className="h-4 w-4 mr-2" />
-                   Công việc mới
+                   <FileText className="h-4 w-4 mr-2" />
+                   Mô tả chi tiết
                  </button>
                )}
             </div>
@@ -148,14 +186,14 @@ export default function ProjectDashboard() {
               <div className="w-64 bg-white border border-slate-200 rounded-xl flex flex-col shadow-sm shrink-0 overflow-hidden">
                 <div className="p-4 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
                   <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Đội ngũ dự án</h3>
-                  {isOwnerOrAdmin && (
+                  {canManageMembers && (
                     <button 
                       onClick={() => {
                         setSelectedMember(null);
                         setIsMemberModalOpen(true);
                       }}
                       className="p-1 hover:bg-slate-200 rounded-md text-slate-400 hover:text-emerald-500 transition-all"
-                      title="Add Member"
+                      title="Thêm thành viên"
                     >
                       <Plus className="h-3 w-3" />
                     </button>
@@ -189,7 +227,7 @@ export default function ProjectDashboard() {
                           </div>
                         </div>
 
-                        {isOwnerOrAdmin && (
+                        {canManageMembers && (
                           <div className="relative flex items-center">
                             <button 
                               onClick={() => setActiveMenuId(activeMenuId === member.id ? null : member.id)}
@@ -201,16 +239,28 @@ export default function ProjectDashboard() {
                             {activeMenuId === member.id && (
                               <>
                                 <div className="fixed inset-0 z-10" onClick={() => setActiveMenuId(null)} />
-                                <div className="absolute right-0 top-full mt-1 w-32 bg-white border border-slate-200 rounded-lg shadow-xl z-20 py-1 overflow-hidden animate-in fade-in zoom-in duration-100">
+                                <div className="absolute right-0 top-full mt-1 min-w-[10rem] bg-white border border-slate-200 rounded-lg shadow-xl z-20 py-1 overflow-hidden animate-in fade-in zoom-in duration-100">
+                                   <button
+                                     type="button"
+                                     onClick={() => {
+                                       setSelectedMember(member);
+                                       setIsMemberModalOpen(true);
+                                       setActiveMenuId(null);
+                                     }}
+                                     className="w-full text-left px-3 py-2 text-[10px] text-slate-700 hover:bg-slate-50 flex items-center"
+                                   >
+                                     <Edit2 className="h-3 w-3 mr-2 text-slate-400 shrink-0" /> Đổi vai trò
+                                   </button>
                                    {member.user.id !== project.ownerId && (
                                      <button 
+                                       type="button"
                                        onClick={() => {
                                          handleDeleteMember(member.user.id);
                                          setActiveMenuId(null);
                                        }}
                                        className="w-full text-left px-3 py-2 text-[10px] text-red-600 hover:bg-red-50 flex items-center"
                                      >
-                                       <Trash2 className="h-3 w-3 mr-2 text-red-400" /> Xóa thành viên
+                                       <Trash2 className="h-3 w-3 mr-2 text-red-400 shrink-0" /> Xóa thành viên
                                      </button>
                                    )}
                                 </div>
@@ -234,7 +284,6 @@ export default function ProjectDashboard() {
                  <DashboardCalendar 
                    tasks={tasks} 
                    onTaskClick={(task) => router.push(`/projects/${projectId}/board?taskId=${task.id}`)}
-                   onAddTask={() => setIsTaskModalOpen(true)}
                  />
               </div>
             </>
@@ -256,23 +305,73 @@ export default function ProjectDashboard() {
       {/* Modals */}
       {project && (
         <>
-          <CreateTaskModal 
-            isOpen={isTaskModalOpen} 
-            onClose={() => setIsTaskModalOpen(false)} 
-            projectId={projectId} 
-            departments={[]}
-            members={members}
-            onSuccess={fetchDashboardData} 
-          />
           <ManageMemberModal
             isOpen={isMemberModalOpen}
-            onClose={() => setIsMemberModalOpen(false)}
+            onClose={() => {
+              setIsMemberModalOpen(false);
+              setSelectedMember(null);
+            }}
             projectId={projectId}
             departmentId={project.owner.departmentId}
             existingMember={selectedMember}
             onSuccess={fetchDashboardData}
           />
         </>
+      )}
+      {isProjectDetailModalOpen && project && (
+        <div className="fixed inset-0 z-[20000]">
+          <div className="absolute inset-0 bg-slate-900/50" onClick={() => setIsProjectDetailModalOpen(false)} />
+          <div className="relative mx-auto mt-16 w-[95%] max-w-3xl rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-slate-900">Mô tả chi tiết và tệp đính kèm</h3>
+              <button
+                type="button"
+                onClick={() => setIsProjectDetailModalOpen(false)}
+                className="text-sm text-slate-500 hover:text-slate-700"
+              >
+                Đóng
+              </button>
+            </div>
+            <div className="mt-4 space-y-5">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Mô tả dự án</p>
+                <div className="mt-2 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-700 whitespace-pre-wrap">
+                  {projectDescriptionText || 'Không có mô tả'}
+                </div>
+              </div>
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Tệp đính kèm</p>
+                {project.projectAttachments && project.projectAttachments.length > 0 ? (
+                  <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    {project.projectAttachments.map((att) => {
+                      const ext = att.fileName.split('.').pop()?.toLowerCase();
+                      const isImage = ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext || '');
+                      return (
+                        <a
+                          key={att.id}
+                          href={att.fileUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="group flex items-center rounded-xl border border-slate-200 bg-white p-3 hover:border-slate-300"
+                        >
+                          <div className="mr-3 flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-slate-500">
+                            {isImage ? <ImageIcon className="h-4 w-4" /> : <Paperclip className="h-4 w-4" />}
+                          </div>
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-medium text-slate-800">{att.fileName}</p>
+                            <p className="text-[11px] text-slate-400">{ext || 'TỆP'}</p>
+                          </div>
+                        </a>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p className="mt-2 text-sm text-slate-500">Không có tệp đính kèm.</p>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </MainLayout>
   );
