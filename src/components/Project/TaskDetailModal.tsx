@@ -99,6 +99,16 @@ const SYSTEM_ACTIONS_IN_COMPACT = new Set([
   'DELETE_ATTACH'
 ]);
 
+/** Cột/status khi board chưa có danh sách riêng — khớp với `<select>` ở header modal */
+const MODAL_MOVE_STATUS_FALLBACK: { id: string; label: string }[] = [
+  { id: 'PENDING', label: 'Chờ xử lý' },
+  { id: 'IN_PROGRESS', label: 'Đang thực hiện' },
+  { id: 'DONE', label: 'Hoàn thành' },
+  { id: 'WAITING_FOR_DOCUMENT', label: 'Chờ tài liệu' },
+  { id: 'DELAYED', label: 'Tạm hoãn' },
+  { id: 'APPROVED', label: 'Đã duyệt' }
+];
+
 interface TaskDetailModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -237,6 +247,8 @@ export default function TaskDetailModal({
   const [deletingAttachmentIds, setDeletingAttachmentIds] = useState<Set<string>>(new Set());
   const [checklistToDelete, setChecklistToDelete] = useState<{ id: string; title: string } | null>(null);
   const [isCopyModalOpen, setIsCopyModalOpen] = useState(false);
+  const [archiveConfirmOpen, setArchiveConfirmOpen] = useState(false);
+  const [archiveSubmitting, setArchiveSubmitting] = useState(false);
 
   useEffect(() => {
     if (!canDuplicateCard) setIsCopyModalOpen(false);
@@ -741,11 +753,16 @@ export default function TaskDetailModal({
   }, [isOpen]);
 
   const emitTaskUpdate = (updates: any) => {
+    const archiving = updates.archived === true;
     emit('task:update', { taskId: localTask.id, projectId, userId: user?.id, updates }, (response: any) => {
       setIsUpdating(false);
+      if (archiving) {
+        setArchiveSubmitting(false);
+      }
       if (response.status === 'error') {
         toast.error(response.message || 'Lỗi cập nhật công việc');
         onUpdate();
+        if (archiving) setArchiveConfirmOpen(false);
       } else {
          // Final Sync
          setLocalTask((prev: any) => ({
@@ -754,6 +771,10 @@ export default function TaskDetailModal({
            checklists: reconcileChecklists(response.task.checklists),
            labels: reconcileLabels(response.task.labels)
          }));
+         if (archiving) {
+           setArchiveConfirmOpen(false);
+           onClose();
+         }
       }
     });
   };
@@ -785,6 +806,17 @@ export default function TaskDetailModal({
       }
       pendingUpdatesRef.current = {};
       emitTaskUpdate(updates);
+      return;
+    }
+
+    if (updates.archived === true) {
+      if (updateTimeoutRef.current) {
+        clearTimeout(updateTimeoutRef.current);
+        updateTimeoutRef.current = null;
+      }
+      const merged = { ...pendingUpdatesRef.current, ...updates };
+      pendingUpdatesRef.current = {};
+      emitTaskUpdate(merged);
       return;
     }
 
@@ -1365,21 +1397,6 @@ export default function TaskDetailModal({
           className="absolute right-2 top-2 z-[60] flex items-center gap-0.5 sm:right-3 sm:top-3"
           onClick={(e) => e.stopPropagation()}
         >
-          <button
-            type="button"
-            className="rounded-lg border border-slate-200/90 bg-white/95 p-2 text-slate-500 shadow-sm backdrop-blur-sm transition-all hover:bg-white hover:text-slate-800"
-            title="Đính kèm"
-          >
-            <Paperclip className="h-4 w-4" />
-          </button>
-          <button
-            type="button"
-            className="rounded-lg border border-slate-200/90 bg-white/95 p-2 text-slate-500 shadow-sm backdrop-blur-sm transition-all hover:bg-white hover:text-slate-800"
-            title="Tùy chọn thẻ"
-          >
-            <MoreVertical className="h-4 w-4" />
-          </button>
-          <div className="mx-0.5 h-5 w-px shrink-0 bg-slate-300" />
           <button
             type="button"
             onClick={onClose}
@@ -2474,9 +2491,94 @@ export default function TaskDetailModal({
               {/* Actions Section */}
               <div className="space-y-4 pt-8 border-t border-slate-100">
                 <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] pl-1">Phím tắt thao tác</h4>
-                <button className="w-full px-4 py-3 bg-white border border-slate-100 hover:bg-slate-50 text-slate-600 rounded-2xl text-xs font-black flex items-center transition-all shadow-sm">
-                   Di chuyển thẻ
-                </button>
+                <div className="relative">
+                  <Popover>
+                    {({ open, close }) => (
+                      <>
+                        <Popover.Button
+                          className={`w-full px-4 py-3 rounded-2xl text-xs font-black flex items-center transition-all border shadow-sm ${
+                            open
+                              ? 'bg-slate-100 border-slate-200 text-slate-800'
+                              : 'bg-white hover:bg-slate-50 border-slate-100 text-slate-600 shadow-slate-100/50'
+                          }`}
+                        >
+                          Di chuyển thẻ
+                        </Popover.Button>
+                        <Transition
+                          as={Fragment}
+                          enter="transition ease-out duration-200"
+                          enterFrom="opacity-0 translate-x-2"
+                          enterTo="opacity-100 translate-x-0"
+                          leave="transition ease-in duration-150"
+                          leaveFrom="opacity-100 translate-x-0"
+                          leaveTo="opacity-0 translate-x-2"
+                        >
+                          <Popover.Panel className="absolute z-[110] top-0 right-[calc(100%+16px)] w-64 max-w-[min(100vw-2rem,16rem)]">
+                            <div className="overflow-hidden rounded-xl border border-slate-200 bg-white py-1.5 shadow-2xl">
+                              <div className="px-3 py-1.5 text-[10px] font-black uppercase tracking-wider text-slate-400">
+                                Cột đích
+                              </div>
+                              <div className="max-h-64 overflow-y-auto px-1.5 custom-scrollbar">
+                                {boardListOptions.length > 0 ? (
+                                  boardListOptions.map((list) => {
+                                    const isCurrent = localTask.boardListId
+                                      ? list.id === localTask.boardListId
+                                      : list.mapsToStatus === localTask.status;
+                                    return (
+                                      <button
+                                        key={list.id}
+                                        type="button"
+                                        disabled={isCurrent}
+                                        onClick={() => {
+                                          handleUpdateTask({
+                                            status: list.mapsToStatus,
+                                            boardListId: list.id
+                                          });
+                                          close();
+                                        }}
+                                        className="flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left text-sm font-semibold text-slate-800 hover:bg-slate-100 disabled:cursor-default disabled:opacity-40"
+                                      >
+                                        {list.name}
+                                        {isCurrent && (
+                                          <span className="text-[10px] text-slate-400">hiện tại</span>
+                                        )}
+                                      </button>
+                                    );
+                                  })
+                                ) : (
+                                  MODAL_MOVE_STATUS_FALLBACK.map((row) => {
+                                    const isCurrent =
+                                      !localTask.boardListId && localTask.status === row.id;
+                                    return (
+                                      <button
+                                        key={row.id}
+                                        type="button"
+                                        disabled={isCurrent}
+                                        onClick={() => {
+                                          handleUpdateTask({
+                                            status: row.id,
+                                            boardListId: null
+                                          });
+                                          close();
+                                        }}
+                                        className="flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left text-sm font-semibold text-slate-800 hover:bg-slate-100 disabled:cursor-default disabled:opacity-40"
+                                      >
+                                        {row.label}
+                                        {isCurrent && (
+                                          <span className="text-[10px] text-slate-400">hiện tại</span>
+                                        )}
+                                      </button>
+                                    );
+                                  })
+                                )}
+                              </div>
+                            </div>
+                          </Popover.Panel>
+                        </Transition>
+                      </>
+                    )}
+                  </Popover>
+                </div>
                 {canDuplicateCard ? (
                   <button
                     type="button"
@@ -2486,16 +2588,12 @@ export default function TaskDetailModal({
                     Sao chép thẻ
                   </button>
                 ) : null}
-                <button 
-                   onClick={() => handleUpdateTask({ status: 'DONE' })}
-                   className="w-full px-4 py-4 bg-emerald-500 hover:bg-emerald-600 text-white rounded-2xl text-xs font-black flex items-center justify-center transition-all border-none shadow-xl shadow-emerald-100 active:scale-95"
+                <button
+                  type="button"
+                  onClick={() => setArchiveConfirmOpen(true)}
+                  className="w-full px-4 py-3 bg-amber-50 hover:bg-amber-100 text-amber-900 rounded-2xl text-xs font-black flex items-center justify-center transition-all border border-amber-100/80 shadow-sm"
                 >
-                   Đánh dấu hoàn thành
-                </button>
-                <button 
-                   className="w-full px-4 py-3 bg-rose-50 hover:bg-rose-100 text-rose-500 rounded-2xl text-xs font-black flex items-center justify-center transition-all border-none shadow-sm"
-                >
-                   Hủy bỏ thẻ (Xóa)
+                  Lưu trữ thẻ
                 </button>
               </div>
             </div>
@@ -2591,6 +2689,23 @@ export default function TaskDetailModal({
           description={`Bạn sắp xóa "${checklistToDelete?.title || 'danh sách'}". Hành động này không thể hoàn tác.`}
           onConfirm={confirmDeleteChecklist}
           onCancel={() => setChecklistToDelete(null)}
+        />
+
+        <ConfirmModal
+          isOpen={archiveConfirmOpen}
+          title="Lưu trữ thẻ?"
+          description="Thẻ sẽ được ẩn khỏi bảng. Bạn có thể mở lại từ khu vực thẻ đã lưu trữ nếu dự án hỗ trợ."
+          confirmLabel="Lưu trữ"
+          cancelLabel="Hủy"
+          variant="primary"
+          isLoading={archiveSubmitting}
+          onConfirm={() => {
+            setArchiveSubmitting(true);
+            handleUpdateTask({ archived: true });
+          }}
+          onCancel={() => {
+            if (!archiveSubmitting) setArchiveConfirmOpen(false);
+          }}
         />
       </div>
     <DescriptionEditorExpandModal

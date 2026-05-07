@@ -688,8 +688,14 @@ export default function BoardPage() {
   const handleLocalTaskUpdate = useCallback((updatedTask: any) => {
     // Record this as the latest update for this task
     lastTaskUpdatesRef.current[updatedTask.id] = Date.now();
-    
-    setTasks(prev => prev.map((t: any) => t.id === updatedTask.id ? { ...t, ...updatedTask } : t));
+
+    if (updatedTask.archived === true) {
+      setTasks((prev) => prev.filter((t: any) => t.id !== updatedTask.id));
+      setSelectedTask((prev: any) => (prev?.id === updatedTask.id ? null : prev));
+      return;
+    }
+
+    setTasks((prev) => prev.map((t: any) => (t.id === updatedTask.id ? { ...t, ...updatedTask } : t)));
   }, []);
 
   const handleOptimisticReorder = useCallback((taskIds: string[], status: string, boardListId: string) => {

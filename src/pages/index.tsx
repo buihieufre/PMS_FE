@@ -19,6 +19,7 @@ import {
   ListTodo,
   UserCircle,
   CalendarDays,
+  FileDown,
 } from 'lucide-react';
 import { taskTitleToPlainText, taskDescriptionToPlainText } from '@/lib/taskDescription';
 import { toast } from 'sonner';
@@ -348,12 +349,20 @@ export default function Home() {
         <PageHeader 
           title={<>Tổng quan công việc</>}
           actions={
-            <button 
-              onClick={() => router.push('/projects')}
-              className="bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-2.5 rounded-xl text-sm font-bold flex items-center transition-all shadow-lg shadow-emerald-200 active:scale-95"
-            >
-              <Plus className="h-4 w-4 mr-2" /> Dự án mới
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => router.push('/reports/projects')}
+                className="bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 px-4 py-2.5 rounded-xl text-sm font-bold flex items-center transition-all shadow-sm active:scale-95"
+              >
+                <FileDown className="h-4 w-4 mr-2" /> Xuất báo cáo
+              </button>
+              <button 
+                onClick={() => router.push('/projects')}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-2.5 rounded-xl text-sm font-bold flex items-center transition-all shadow-lg shadow-emerald-200 active:scale-95"
+              >
+                <Plus className="h-4 w-4 mr-2" /> Dự án mới
+              </button>
+            </div>
           }
         />
 
