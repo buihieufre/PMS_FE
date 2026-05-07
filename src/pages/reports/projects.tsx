@@ -116,7 +116,7 @@ export default function ProjectReportPage() {
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
       map.set(key, (map.get(key) || 0) + 1);
     }
-    return [...map.entries()]
+    return Array.from(map.entries())
       .sort(([a], [b]) => a.localeCompare(b))
       .slice(-6)
       .map(([k, v]) => {
@@ -131,7 +131,7 @@ export default function ProjectReportPage() {
       const owner = p.owner?.displayName || 'Không rõ';
       map.set(owner, (map.get(owner) || 0) + 1);
     }
-    return [...map.entries()]
+    return Array.from(map.entries())
       .map(([owner, total]) => ({ owner, total }))
       .sort((a, b) => b.total - a.total)
       .slice(0, 6);
