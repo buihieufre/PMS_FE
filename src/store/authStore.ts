@@ -8,6 +8,8 @@ interface User {
   displayName: string;
   avatarUrl: string | null;
   role: string;
+  /** Gửi kèm từ login/refresh; dùng kiểm tra quyền (vd. tạo dự án) */
+  permissions?: string[];
   steps?: number;
   stepGoal?: number;
 }

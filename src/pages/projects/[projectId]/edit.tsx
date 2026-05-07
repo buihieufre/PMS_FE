@@ -9,6 +9,8 @@ import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import { useRef, useCallback, useMemo } from 'react';
 import { getEditorTools } from '@/lib/editorTools';
+import { useAuthStore } from '@/store/authStore';
+import { canEditProject } from '@/lib/permissions';
 
 const EditorJs = dynamic(
   () => import('react-editor-js').then((mod) => mod.createReactEditorJS()),
@@ -47,6 +49,12 @@ export default function EditProject() {
       try {
         const res = await axiosInstance.get(`/projects/${projectId}`);
         const proj = res.data;
+        const u = useAuthStore.getState().user;
+        if (!canEditProject(u, { ownerId: proj.ownerId, myProjectRole: proj.myProjectRole ?? null })) {
+          toast.error('Bạn không có quyền chỉnh sửa dự án');
+          router.replace('/projects');
+          return;
+        }
         setName(proj.name);
         setInitialName(proj.name || '');
         try {

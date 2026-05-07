@@ -11,6 +11,8 @@ import dynamic from 'next/dynamic';
 import { toast } from 'sonner';
 import { normalizeBoardTemplateOption, type BoardTemplateOption } from '@/lib/boardTemplateOption';
 import { BoardTemplatePreview } from '@/components/Project/BoardTemplatePreview';
+import { useAuthStore } from '@/store/authStore';
+import { canCreateProjects } from '@/lib/permissions';
 
 const EditorJs = dynamic(
   () => import('react-editor-js').then((mod) => mod.createReactEditorJS()),
@@ -19,6 +21,16 @@ const EditorJs = dynamic(
 
 export default function CreateProjectPage() {
   const router = useRouter();
+  const user = useAuthStore((s) => s.user);
+
+  useEffect(() => {
+    if (!user) return;
+    if (!canCreateProjects(user)) {
+      toast.error('Bạn không có quyền tạo dự án');
+      router.replace('/projects');
+    }
+  }, [user, router]);
+
   const [name, setName] = useState('');
   const editorCore = useRef<any>(null);
   const tools = useMemo(() => getEditorTools(), []);

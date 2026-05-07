@@ -71,11 +71,13 @@ axiosInstance.interceptors.response.use(
           { withCredentials: true }
         );
 
-        const { accessToken } = response.data;
+        const { accessToken, user } = response.data;
         console.log('[AXIOS] Refresh successful, updating token.');
-        
-        // Update store with new token
+
         useAuthStore.getState().updateAccessToken(accessToken);
+        if (user) {
+          useAuthStore.getState().setUser(user);
+        }
 
         // Process all queued requests with the new token
         processQueue(null, accessToken);

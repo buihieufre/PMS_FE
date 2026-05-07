@@ -20,11 +20,19 @@ const ROLES = [
 
 type Tab = 'department' | 'email';
 
-const SYSTEM_ROLE_TO_PROJECT_ROLE_LABEL: Record<string, string> = {
-  OWNER: 'Chủ dự án',
-  LEAD: 'Trưởng nhóm',
-  EMPLOYEE: 'Nhân viên',
+/** Gợi ý hiển thị khi thêm thành viên (khớp map phía API) */
+const INCOMING_ROLE_HINT: Record<string, string> = {
+  OWNER: 'Chủ dự án trên dự án (PROJECT_OWNER)',
+  LEAD: 'Trưởng nhóm (TEAM_LEAD)',
+  EMPLOYEE: 'Nhân viên (EMPLOYEE)',
+  ADMIN: 'Nhân viên trên dự án (EMPLOYEE) — tài khoản quản trị hệ thống',
+  SYSTEM_ADMIN: 'Nhân viên trên dự án (EMPLOYEE) — tài khoản quản trị hệ thống',
 };
+
+function incomingRoleHintFromSystemRole(roleName?: string | null): string {
+  const k = String(roleName || '').toUpperCase();
+  return INCOMING_ROLE_HINT[k] || 'Nhân viên (EMPLOYEE)';
+}
 
 export default function ManageMemberModal({ isOpen, onClose, projectId, departmentId, existingMember, onSuccess }: ManageMemberModalProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -136,10 +144,8 @@ export default function ManageMemberModal({ isOpen, onClose, projectId, departme
         });
         toast.success('Đã cập nhật vai trò thành viên');
       } else {
-        const payload: { email: string; projectRole?: string } = { email };
-        if (projectRole) payload.projectRole = projectRole;
-        await axiosInstance.post(`/projects/${projectId}/members`, payload);
-        toast.success('Đã chọn thành viên vào dự án');
+        await axiosInstance.post(`/projects/${projectId}/members`, { email });
+        toast.success('Đã thêm thành viên vào dự án');
       }
       onSuccess();
       onClose();
@@ -150,14 +156,13 @@ export default function ManageMemberModal({ isOpen, onClose, projectId, departme
     }
   };
 
-  const filteredGlobalUsers = globalUsers.filter(u => 
-    u.email.toLowerCase().includes(searchTerm.toLowerCase()) || 
-    u.displayName.toLowerCase().includes(searchTerm.toLowerCase())
+  const filteredGlobalUsers = globalUsers.filter(
+    (u) =>
+      u.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      u.displayName.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   const selectedUser = [...usersInDept, ...globalUsers].find((u) => u.email === email);
-  const mappedRoleLabel =
-    SYSTEM_ROLE_TO_PROJECT_ROLE_LABEL[(selectedUser?.role?.name || '').toUpperCase()] || null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-[2px] p-4 animate-in fade-in duration-200">
@@ -203,49 +208,46 @@ export default function ManageMemberModal({ isOpen, onClose, projectId, departme
         )}
 
         <div className="p-6 space-y-5">
-           {/* Member Role Selection (Always visible) */}
-           <div className="space-y-1.5">
-              <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide">Giao vai trò</label>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                 {ROLES.map((role) => (
+          {existingMember ? (
+            <>
+              <div className="p-4 bg-slate-50 rounded-xl border border-slate-100 flex items-center space-x-4">
+                <div className="w-12 h-12 rounded-full overflow-hidden bg-white shadow-sm border border-slate-200">
+                  <img
+                    src={`https://ui-avatars.com/api/?name=${displayName}&background=random`}
+                    alt={displayName}
+                  />
+                </div>
+                <div>
+                  <p className="font-bold text-slate-800">{displayName}</p>
+                  <p className="text-xs text-slate-500">{email}</p>
+                </div>
+              </div>
+
+              <div className="h-px bg-slate-100 w-full" />
+
+              <div className="space-y-1.5">
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide">Đổi vai trò trong dự án</label>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  {ROLES.map((role) => (
                     <button
                       key={role.value}
                       type="button"
                       onClick={() => setProjectRole(role.value)}
                       className={`px-3 py-2 text-[11px] font-bold rounded-lg border-2 transition-all text-left ${
-                        projectRole === role.value 
-                        ? 'border-slate-800 bg-slate-800 text-white' 
-                        : 'border-slate-100 bg-slate-50 text-slate-600 hover:border-slate-300'
+                        projectRole === role.value
+                          ? 'border-slate-800 bg-slate-800 text-white'
+                          : 'border-slate-100 bg-slate-50 text-slate-600 hover:border-slate-300'
                       }`}
                     >
                       {role.label}
                     </button>
-                 ))}
+                  ))}
+                </div>
               </div>
-              {!existingMember && !projectRole && (
-                <p className="text-[11px] text-slate-500 mt-1">
-                  {mappedRoleLabel
-                    ? `Sẽ tự gán mặc định: ${mappedRoleLabel}.`
-                    : 'Nếu không xác định được role hệ thống, bạn sẽ cần chọn role thủ công khi lưu.'}
-                </p>
-              )}
-           </div>
-
-           <div className="h-px bg-slate-100 w-full" />
-
-           {/* User Selection Logic */}
-           {existingMember ? (
-             <div className="p-4 bg-slate-50 rounded-xl border border-slate-100 flex items-center space-x-4">
-                <div className="w-12 h-12 rounded-full overflow-hidden bg-white shadow-sm border border-slate-200">
-                    <img src={`https://ui-avatars.com/api/?name=${displayName}&background=random`} alt={displayName} />
-                </div>
-                <div>
-                   <p className="font-bold text-slate-800">{displayName}</p>
-                   <p className="text-xs text-slate-500">{email}</p>
-                </div>
-             </div>
-           ) : (
-             <div className="space-y-4 min-h-[220px]">
+            </>
+          ) : (
+            <>
+              <div className="space-y-4 min-h-[220px]">
                 {activeTab === 'department' ? (
                   <>
                     <div className="space-y-1.5">
@@ -398,7 +400,21 @@ export default function ManageMemberModal({ isOpen, onClose, projectId, departme
                    </div>
                 )}
              </div>
-           )}
+
+              {email && selectedUser && (
+                <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+                  <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wide mb-1">Vai trò trong dự án</p>
+                  <p className="text-xs text-slate-700 leading-relaxed">
+                    Gán theo vai trò hệ thống của họ:{' '}
+                    <span className="font-semibold text-slate-900">
+                      {incomingRoleHintFromSystemRole(selectedUser.role?.name)}
+                    </span>
+                    . Nếu cần chỉnh lại sau, dùng mục quản lý thành viên trên dự án.
+                  </p>
+                </div>
+              )}
+            </>
+          )}
         </div>
 
         {/* Footer */}

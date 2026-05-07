@@ -9,6 +9,12 @@ import { PageHeader } from '@/components/Layout/PageHeader';
 import ConfirmModal from '@/components/Modal/ConfirmModal';
 import { toast } from 'sonner';
 import { useAuthStore } from '@/store/authStore';
+import {
+  canCreateProjects,
+  canEditProject,
+  canDeleteProject,
+  canManageCustomerShareLinks,
+} from '@/lib/permissions';
 
 interface Project {
   id: string;
@@ -79,11 +85,6 @@ export default function ProjectsPage() {
     }
   };
 
-  const canManageShareLinks = (project: Project) => {
-    if (!user) return false;
-    if (user.role === 'ADMIN') return true;
-    return project.ownerId === user.id || project.myProjectRole === 'PROJECT_OWNER';
-  };
 
   const openShareLinkModal = async (project: Project) => {
     setShareModalProject(project);
@@ -218,13 +219,16 @@ export default function ProjectsPage() {
         title="Dự án"
         description="Quản lý tất cả các dự án đang hoạt động và đã qua."
         actions={
-          <button 
-            onClick={() => router.push('/projects/new')}
-            className="flex items-center px-6 py-2.5 bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 text-sm font-bold transition-all shadow-lg shadow-emerald-100 active:scale-95"
-          >
-            <Plus className="h-4 w-4 mr-2" />
-            Tạo dự án mới
-          </button>
+          canCreateProjects(user) ? (
+            <button
+              type="button"
+              onClick={() => router.push('/projects/new')}
+              className="flex items-center px-6 py-2.5 bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 text-sm font-bold transition-all shadow-lg shadow-emerald-100 active:scale-95"
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              Tạo dự án mới
+            </button>
+          ) : undefined
         }
       />
 
@@ -341,30 +345,34 @@ export default function ProjectsPage() {
                                 <Eye className="h-3.5 w-3.5 text-slate-500" />
                                 Xem thông tin
                               </Link>
-                              <Link
-                                href={`/projects/${project.id}/edit`}
-                                className="flex items-center gap-2 px-3 py-2 text-xs text-slate-700 hover:bg-slate-50"
-                                onClick={() => {
-                                  setOpenMenuProjectId(null);
-                                  setMenuAnchor(null);
-                                }}
-                              >
-                                <Pencil className="h-3.5 w-3.5 text-slate-500" />
-                                Chỉnh sửa
-                              </Link>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setProjectToDelete(project.id);
-                                  setOpenMenuProjectId(null);
-                                  setMenuAnchor(null);
-                                }}
-                                className="flex w-full items-center gap-2 px-3 py-2 text-xs text-red-600 hover:bg-red-50"
-                              >
-                                <Trash2 className="h-3.5 w-3.5 text-red-500" />
-                                Xóa dự án
-                              </button>
-                              {canManageShareLinks(project) && (
+                              {canEditProject(user, project) && (
+                                <Link
+                                  href={`/projects/${project.id}/edit`}
+                                  className="flex items-center gap-2 px-3 py-2 text-xs text-slate-700 hover:bg-slate-50"
+                                  onClick={() => {
+                                    setOpenMenuProjectId(null);
+                                    setMenuAnchor(null);
+                                  }}
+                                >
+                                  <Pencil className="h-3.5 w-3.5 text-slate-500" />
+                                  Chỉnh sửa
+                                </Link>
+                              )}
+                              {canDeleteProject(user, project) && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setProjectToDelete(project.id);
+                                    setOpenMenuProjectId(null);
+                                    setMenuAnchor(null);
+                                  }}
+                                  className="flex w-full items-center gap-2 px-3 py-2 text-xs text-red-600 hover:bg-red-50"
+                                >
+                                  <Trash2 className="h-3.5 w-3.5 text-red-500" />
+                                  Xóa dự án
+                                </button>
+                              )}
+                              {canManageCustomerShareLinks(user, project) && (
                                 <>
                                   <div className="my-1 border-t border-slate-100" />
                                   <button
