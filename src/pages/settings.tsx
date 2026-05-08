@@ -24,6 +24,7 @@ export default function SettingsPage() {
   const [avatarUrl, setAvatarUrl] = useState('');
   const [isUpdating, setIsUpdating] = useState(false);
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
+  
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -114,14 +115,14 @@ export default function SettingsPage() {
         <title>Cài đặt | PMS</title>
       </Head>
 
-      <div className="max-w-4xl mx-auto">
+      <div className="max-w-7xl mx-auto">
         <PageHeader
           title={<>Cài đặt tài khoản</>}
           description="Cập nhật thông tin hồ sơ và ảnh đại diện của bạn."
         />
 
-        <div className="rounded-2xl border border-slate-100 bg-white p-6 shadow-sm">
-          <form onSubmit={handleUpdateProfile} className="space-y-6">
+        <div className="rounded-2xl border border-slate-100 bg-white p-8 md:p-10 shadow-sm">
+          <form onSubmit={handleUpdateProfile} className="space-y-8 max-w-4xl">
             <div>
               <label className="block text-sm font-semibold text-slate-700 mb-3">Ảnh đại diện</label>
               <div className="flex flex-col items-center gap-4">
@@ -160,7 +161,7 @@ export default function SettingsPage() {
                   <p className="text-xs text-slate-400">JPG, PNG, WEBP (tối đa 5MB)</p>
                 </div>
 
-                <div className="grid grid-cols-4 gap-3 w-full max-w-md">
+                <div className="grid grid-cols-4 sm:grid-cols-8 gap-4 w-full max-w-2xl">
                   {PRESET_AVATARS.map((url) => (
                     <button
                       key={url}
@@ -196,18 +197,18 @@ export default function SettingsPage() {
             </div>
 
             <div>
-              <label className="block text-sm font-semibold text-slate-700 mb-2">Tên hiển thị</label>
+              <label className="block text-sm font-semibold text-slate-700 mb-3">Tên hiển thị</label>
               <input
                 type="text"
                 required
                 value={displayName}
                 onChange={(e) => setDisplayName(e.target.value)}
-                className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all shadow-sm"
+                className="w-full max-w-2xl px-5 py-3.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all shadow-sm text-base"
                 placeholder="Họ và tên của bạn"
               />
             </div>
 
-            <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 flex items-center justify-between">
+            <div className="max-w-2xl p-5 bg-slate-50 rounded-xl border border-slate-200 flex items-center justify-between">
               <div>
                 <p className="text-xs font-medium text-slate-500">Vai trò hiện tại</p>
                 <p className="text-sm font-bold text-slate-700">{user?.role}</p>
@@ -217,11 +218,11 @@ export default function SettingsPage() {
               </div>
             </div>
 
-            <div className="flex justify-end pt-2">
+            <div className="flex justify-start pt-6 border-t border-slate-100 max-w-2xl">
               <button
                 type="submit"
                 disabled={isUpdating || isUploadingAvatar}
-                className="px-5 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-bold hover:bg-indigo-700 focus:ring-4 focus:ring-indigo-500/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                className="px-8 py-3.5 rounded-xl bg-indigo-600 text-white text-sm font-bold hover:bg-indigo-700 focus:ring-4 focus:ring-indigo-500/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
                 {isUpdating ? (
                   <Loader2 className="w-5 h-5 animate-spin" />

@@ -8,7 +8,8 @@ import {
   LogOut, 
   User as UserIcon, 
   ChevronDown,
-  CheckCircle2
+  CheckCircle2,
+  KeyRound
 } from 'lucide-react';
 import { Menu, Transition } from '@headlessui/react';
 import { Fragment } from 'react';
@@ -31,9 +32,15 @@ export const Topbar = ({ showSidebarToggle = true }: TopbarProps) => {
 
 
 
-  const handleLogout = () => {
-    logout();
-    router.push('/login');
+  const handleLogout = async () => {
+    try {
+      await axiosInstance.post('/auth/logout');
+    } catch (error) {
+      console.error('Logout error:', error);
+    } finally {
+      logout();
+      router.push('/login');
+    }
   };
 
   const { notifications, unreadCount, markAsRead, markAllAsRead } = useNotificationStore();
@@ -206,6 +213,19 @@ export const Topbar = ({ showSidebarToggle = true }: TopbarProps) => {
                     >
                       <Settings className="mr-3 h-4 w-4 transition-transform group-hover:rotate-45" />
                       Cài đặt tài khoản
+                    </button>
+                  )}
+                </Menu.Item>
+                <Menu.Item>
+                  {({ active }) => (
+                    <button
+                      onClick={() => router.push('/change-password')}
+                      className={`${
+                        active ? 'bg-emerald-50 text-emerald-600' : 'text-slate-700'
+                      } group flex w-full items-center rounded-xl px-3 py-2.5 text-sm font-semibold transition-colors`}
+                    >
+                      <KeyRound className="mr-3 h-4 w-4 transition-transform group-hover:rotate-12" />
+                      Đổi mật khẩu
                     </button>
                   )}
                 </Menu.Item>

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import Head from 'next/head';
+import Link from 'next/link';
 import axiosInstance from '@/lib/axios';
 import { useAuthStore } from '@/store/authStore';
 import { Loader2, Mail, Lock } from 'lucide-react';
@@ -114,7 +115,7 @@ export default function Login() {
               <input type="checkbox" className="w-4 h-4 rounded border-white/10 bg-slate-800 text-indigo-500 focus:ring-indigo-500/50 mr-2 transition-all" />
               <span className="group-hover:text-slate-200 transition-colors">Ghi nhớ đăng nhập</span>
             </label>
-            <a href="#" className="text-sm font-bold text-indigo-400 hover:text-indigo-300 transition-colors">Quên mật khẩu?</a>
+            <Link href="/forgot-password" className="text-sm font-bold text-indigo-400 hover:text-indigo-300 transition-colors">Quên mật khẩu?</Link>
           </div>
 
           <button 

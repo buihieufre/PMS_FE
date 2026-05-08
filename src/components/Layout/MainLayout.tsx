@@ -29,8 +29,15 @@ export default function MainLayout({
   fullWidth = false
 }: MainLayoutProps) {
   const user = useAuthStore((state) => state.user);
+  const accessToken = useAuthStore((state) => state.accessToken);
   const router = useRouter();
   const { projectId } = router.query;
+
+  useEffect(() => {
+    if (!accessToken && router.isReady) {
+      router.replace('/login');
+    }
+  }, [accessToken, router.isReady, router]);
   
   const { on, off } = useSocket(projectId as string, user?.id);
   const fetchNotifications = useNotificationStore(state => state.fetchNotifications);
@@ -126,6 +133,14 @@ export default function MainLayout({
       off('notification:new', handleNewNotification);
     };
   }, [user, on, off, addNotification]);
+
+  if (!accessToken) {
+    return (
+      <div className="h-screen w-full flex items-center justify-center bg-slate-50">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-500" />
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-screen w-full min-w-0 overflow-hidden bg-slate-50">
