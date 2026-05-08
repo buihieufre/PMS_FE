@@ -889,11 +889,23 @@ export default function TaskDetailModal({
     // Prevent double-delete (e.g. double click)
     if (deletingChecklistsRef.current.has(checklistId)) return;
     deletingChecklistsRef.current.add(checklistId);
+
+    // Optimistic Update
+    setLocalTask((prev: any) => {
+      const updated = {
+        ...prev,
+        checklists: prev.checklists?.filter((c: any) => c.id !== checklistId)
+      };
+      if (onDataChange) onDataChange(updated);
+      return updated;
+    });
+
     emit('checklist:delete', { checklistId, projectId, taskId: localTask.id, userId: user?.id, title }, (response: any) => {
       if (response.status === 'error') {
         toast.error(response.message || 'Không thể xóa danh sách');
         onUpdate();
       }
+      deletingChecklistsRef.current.delete(checklistId);
     });
   };
 
